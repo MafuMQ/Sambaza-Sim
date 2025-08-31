@@ -64,15 +64,28 @@ def evaluate_indicies():
     for indice in indices:
         productions:List[Production] = ptdb.get_all_productions_by_good(int(indice.id_number))  # pyright: ignore[reportArgumentType]
 
-        cheapest_production = min(productions, key=lambda p: p.price) # type: ignore
+        cheapest_production = min(productions, key=lambda p: float(p.price)) # type: ignore
         price = cheapest_production.price
         inputs = cheapest_production.production_inputs
         gidb.update_good_indice(int(indice.id_number), production_inputs=inputs, price=price)  # pyright: ignore[reportArgumentType]
 
-def evaluate_production_inputs_to_equations():
+def evaluate_indicies_production_inputs_to_matrix():
+    symbols, equations = evaluate_production_inputs_to_equations("indicies")
+    evaluate_coefficients(symbols, equations)
+
+def evaluate_production_inputs_to_equations(which: str = "indicies"):
     """Evaluate production inputs to equations."""
-    ptdb = ProductionsDatabase()
-    productions = ptdb.get_all_productions()
+
+    if which == "productions":
+        ptdb = ProductionsDatabase()
+        productions = ptdb.get_all_productions()
+    elif which == "indicies":
+        indc = GoodsIndiceDatabase()
+        productions = indc.get_all_good_indices()
+    else:
+        logger.error(f"Unknown type: {which}")
+        raise Exception(f"Unknown type: {which}")
+    
     symbols = set()
     equations = []
 
@@ -82,12 +95,13 @@ def evaluate_production_inputs_to_equations():
             symbols.update(result[0])
             equations.append(result[1])
 
-    evaluate_coefficients(list(symbols), equations)
+    return list(symbols), equations
 
 def evaluate_production_inputs_to_equation(production: Production, format: str):
     if format == "string":
         return production_inputs_to_string(production)
     elif format == "sympy":
+        print(production_inputs_to_string(production))
         return production_inputs_to_sympy(production)
     else:
         logger.error(f"Unknown format: {format}")
@@ -111,12 +125,12 @@ def production_inputs_to_sympy(production: Production):
 
 def evaluate_coefficients(symbols, expr):
     A, b = sp.linear_eq_to_matrix(expr, symbols)
+    # Replace all -1's with 0's
+    A = A.applyfunc(lambda x: 0 if x == -1 else x)
     print("Symbols (variables):", symbols)
     print("Expressions:", expr)
-    print("Coefficient matrix A:")
+    print("Flow Coefficient matrix A (with -1 replaced by 0):")
     sp.pprint(A)
     # print("Right-hand side vector b:")
     # sp.pprint(b)
-
-evaluate_production_inputs_to_equations()
 

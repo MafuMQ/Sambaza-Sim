@@ -1,0 +1,6 @@
+﻿Inputs →<br>Outputs ↓,Agriculture,Manufacturing,Services,Final Demand,Total Output
+Agriculture,20,30,10,40,100
+Manufacturing,10,50,20,70,150
+Services,5,20,30,95,150
+Value Added,65,50,90,,
+Total Input,100,150,150,,

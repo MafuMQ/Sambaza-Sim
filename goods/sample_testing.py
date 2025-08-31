@@ -5,24 +5,25 @@ from Good_Indice import GoodsIndiceDatabase
 from Production import ProductionsDatabase
 import random
 import json
+from Evaluators import *
 
 logging.basicConfig(level=logging.INFO)
 
 from faker import Faker
 fake = Faker()
 
-def add_import_producion(good_name, good_id,isic):
+def add_import_producion(good_name, produce,isic):
     production_db = ProductionsDatabase()
 
     # Create a production entry for the imported good
     production_db.add_production(
         name="IMPORT",
-        id_number=int("9"+str(good_id)),
+        id_number=int("9"+str(produce)),
         isic=isic,
         producer=99999,
-        produce=good_id,
+        produce=produce,
         produce_name=good_name,
-        production_inputs={"A9999_999_999": 1},  # Assuming the good is imported from a specific ISIC code
+        production_inputs={"A9999_999_999": 1000},  # Assuming the good is imported from a specific ISIC code
         production_added_value=0,
         production_rate=0, # Unlimited production capacity
         price = fake.random_int(min=5, max=5000)
@@ -68,8 +69,8 @@ def test_good(n=5,pn=5):
         gdb.add_good(name=name, descriptive_name=desc, id_number=id_number, isic=isic)
         add_import_producion(name, id_number,isic)
         GoodsIndiceDatabase().add_good_indice(name=name,id_number=id_number,isic=isic,quantity=0) # each new good has an index
-        test_production_with_args(id_number, isic, n=pn) # we add numbered random local productions for the good
-        
+        test_production_with_args(produce=id_number, isic=isic, n=pn) # we add numbered random local productions for the good
+
 def test_good_indice(n=5):
     gidb = GoodsIndiceDatabase()
     for _ in range(n):
@@ -82,14 +83,14 @@ def test_good_indice(n=5):
 def test_production(n=5):
     id_number = fake.unique.random_int(min=4000, max=4999)
     isic = fake.bothify(text='A####_###_' + ''.join(fake.random_choices(elements='0123456789', length=fake.random_int(min=1, max=5))))
-    test_production_with_args(id_number=id_number, isic=isic, n=n)
+    test_production_with_args(produce=fake.unique.random_int(min=2000, max=2999), isic=isic, n=n)
 
-def test_production_with_args(id_number, isic, n=5):
+def test_production_with_args(produce, isic, n=5):
     pdb = ProductionsDatabase()
     for _ in range(n):
         name = fake.word().capitalize() + " Production"
+        id_number = fake.unique.random_int(min=4000, max=4999)
         producer = fake.random_int(min=1000, max=9999)
-        produce = fake.random_int(min=2000, max=2999)
         produce_name = fake.word().capitalize() + " Good"
 
         # Production fields
@@ -138,29 +139,30 @@ def test_production_inputs():
             inputs = {random.choice(existing_goods_isic): fake.random_int(min=1, max=100) for _ in range(3)}
             pdb.update_production(int(production.id), production_inputs=inputs) # pyright: ignore[reportArgumentType]
 
-if __name__ == "__main__":
+def test_setup():
     print("Testing Producer:")
     test_producer(10)
     print("\nTesting Good:")
-    test_good(10,3)
+    test_good(5,4)
     print("\nTesting Production inputs:")
     test_production_inputs()
     print("\nTesting completed.")
     print("\nEvaluating ISIC codes:")
-    from Evaluators import *
     evaluate_goods_isic()
-    print("Evaluation completed.\nEvaluating Indices Price:")
+    print("Evaluation of ISIC codes completed.\nEvaluating Production Prices:")
     evaluate_productions_price()
+    print("\nEvaluation of Production prices completed.\nEvaluating Indices Inputs and Prices:")
     evaluate_indicies()
-    print("\nEvaluation of prices completed.")
+    print("Evaluation of Indices Inputs and Prices completed.\nEvaluating Indices Production Inputs to Matrix:")
+    evaluate_indicies_production_inputs_to_matrix()
+    print("Evaluation of Indices Production Inputs to Matrix completed.")
+    print("\n Testing get_all_productions_by_good")
 
-#TO:DO, for testing purposes, every good has an import producer, which we'll set higher than most local producers, with unlimited production capacity.
-# This is to ensure that the goods are always available for testing purposes.
+if __name__ == "__main__":
+    test_setup()
 
-# must use evaluated productions, no duplicates
-# evaluate inputs & prices
-# fix -1 issue
+#NOTE: every good has an import producer
 
-# START WITH PRICES ONLY, WITH IMPORTS ONLY
-# - evaluate price per production, aggregate input and price, disregard quantity for now, then io table
-# THEN DO WITH PRODUCTIONS
+#NOTE -1 issue -- this issue comes from e.g. A2244_121_482 = 1 * A9999_999_999 will auto resolve to 0 = 1 * A9999_999_999 - A2244_121_482
+
+#ADVANCED: invest for.. employment & for productivity
