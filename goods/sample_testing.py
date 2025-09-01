@@ -6,6 +6,7 @@ from Production import ProductionsDatabase
 import random
 import json
 from Evaluators import *
+from growth.growth import create_leontief_inverse
 
 logging.basicConfig(level=logging.INFO)
 
@@ -156,10 +157,13 @@ def test_setup():
     print("Evaluation of Indices Inputs and Prices completed.\nEvaluating Indices Production Inputs to Matrix:")
     evaluate_indicies_production_inputs_to_matrix()
     print("Evaluation of Indices Production Inputs to Matrix completed.")
-    print("\n Testing get_all_productions_by_good")
 
 if __name__ == "__main__":
-    test_setup()
+    # test_setup()
+    print("Evaluation of Indices Inputs and Prices completed.\nEvaluating Indices Production Inputs to Matrix:")
+    A_matrix = evaluate_indicies_production_inputs_to_matrix()
+    print("Evaluation of Indices Production Inputs to Matrix completed.")
+    print(create_leontief_inverse(A_matrix))
 
 #NOTE: every good has an import producer
 

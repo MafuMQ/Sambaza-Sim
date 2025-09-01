@@ -71,7 +71,7 @@ def evaluate_indicies():
 
 def evaluate_indicies_production_inputs_to_matrix():
     symbols, equations = evaluate_production_inputs_to_equations("indicies")
-    evaluate_coefficients(symbols, equations)
+    return evaluate_coefficients(symbols, equations)
 
 def evaluate_production_inputs_to_equations(which: str = "indicies"):
     """Evaluate production inputs to equations."""
@@ -123,7 +123,7 @@ def production_inputs_to_sympy(production: Production):
     )
     return list(symbols.values()) + [output_symbol], equation
 
-def evaluate_coefficients(symbols, expr):
+def evaluate_coefficients(symbols, expr) -> sp.Matrix:
     A, b = sp.linear_eq_to_matrix(expr, symbols)
     # Replace all -1's with 0's
     A = A.applyfunc(lambda x: 0 if x == -1 else x)
@@ -133,4 +133,5 @@ def evaluate_coefficients(symbols, expr):
     sp.pprint(A)
     # print("Right-hand side vector b:")
     # sp.pprint(b)
+    return A
 

@@ -32,27 +32,36 @@ def load_io_table(table_type: str, name: str, trim_extras: bool = True) -> np.nd
 
 # --- Economic Analysis Functions ---
 
-def create_leontief_inverse(A: np.ndarray, vec: np.ndarray, vec_type: str = "output") -> np.ndarray:
+def create_leontief_inverse(Z: np.ndarray, Total_Output: np.ndarray = None, Final_Demand: np.ndarray = None, Value_Added: np.ndarray = None) -> np.ndarray: # pyright: ignore[reportArgumentType]
     """
     Creates the Leontief inverse matrix from the intermediate input matrix and either an output or final demand vector.
     Args:
         A (np.ndarray): Intermediate input matrix (n x n)
-        vec (np.ndarray): Output vector (n,) or final demand vector (n,)
-        vec_type (str): "output" if vec is output, "final_demand" if vec is final demand
+        Total_Output (np.ndarray): Total output vector (n,)
+        Final_Demand (np.ndarray): Final demand vector (n,)
     Returns:
         np.ndarray: Leontief inverse matrix (n x n)
     """
-    n = A.shape[0]
-    if vec_type == "output":
-        A_coeff = A / vec.reshape(-1, 1)
-    elif vec_type == "final_demand":
-        # If only final demand is provided, estimate output as sum of row + final demand
-        output = A.sum(axis=1) + vec
-        A_coeff = A / output.reshape(-1, 1)
+    n = Z.shape[0]
+    if Total_Output is not None:
+        # Use provided total output
+        output = Total_Output
+        A_coeff = Z / output.reshape(1, -1)  # Broadcasting over columns
+    elif Final_Demand is not None:
+        # Compute output as column sum of Z + final demand
+        intermediate_inputs = Z.sum(axis=0)  # Sum over rows → input usage per sector
+        output = Z.sum(axis=1) + Final_Demand
+        A_coeff = Z / output.reshape(-1, 1)
+    elif Value_Added is not None:
+        # Compute output as intermediate inputs + value added
+        intermediate_inputs = Z.sum(axis=0)
+        output = intermediate_inputs + Value_Added
+        A_coeff = Z / output.reshape(1, -1)
     else:
-        raise ValueError("vec_type must be either 'output' or 'final_demand'")
-    leontief_inv = np.linalg.inv(np.eye(n) - A_coeff)
-    return leontief_inv
+        raise ValueError("At least one of Total_Output, Final_Demand, or Value_Added must be provided.")
+    
+    return np.linalg.inv(np.eye(n) - A_coeff)
+
 
 # --- Demonstrations Functions ---
 
@@ -122,10 +131,13 @@ if __name__ == "__main__":
     # Manually provide final demand and output vectors for 'one.csv'
     final_demand = np.array([40, 70, 95])
     output = np.array([100, 150, 150]) #this is neccessary if the table is not normalized
-    demonstrate_demand_shock('csv', 'io1.csv', True, final_demand, output, [10, 0, -5])
+    print(create_leontief_inverse(load_io_table('csv', 'io1.csv', True), Total_Output=output))
+    print(create_leontief_inverse(load_io_table('csv', 'io1.csv', True), Final_Demand=final_demand))
+    print(create_leontief_inverse(load_io_table('csv', 'io1.csv', True), Value_Added=np.array([65,50,90])))
+    # demonstrate_demand_shock('csv', 'io1.csv', True, final_demand, output, [10, 0, -5])
 
     # To use technological improvement, provide two tables: base and improved
-    demonstrate_technological_improvement('csv', 'io1.csv', 'io2.csv', True, final_demand, output)
+    # demonstrate_technological_improvement('csv', 'io1.csv', 'io2.csv', True, final_demand, output)
 
 # TODO break down value added & final demand
 
