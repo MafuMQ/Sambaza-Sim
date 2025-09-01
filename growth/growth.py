@@ -32,35 +32,50 @@ def load_io_table(table_type: str, name: str, trim_extras: bool = True) -> np.nd
 
 # --- Economic Analysis Functions ---
 
-def create_leontief_inverse(Z: np.ndarray, Total_Output: np.ndarray = None, Final_Demand: np.ndarray = None, Value_Added: np.ndarray = None) -> np.ndarray: # pyright: ignore[reportArgumentType]
+def create_leontief_inverse(
+    Z: np.ndarray,
+    Total_Output: np.ndarray = None,
+    Final_Demand: np.ndarray = None,
+    Value_Added: np.ndarray = None
+) -> np.ndarray:
     """
-    Creates the Leontief inverse matrix from the intermediate input matrix and either an output or final demand vector.
-    Args:
-        A (np.ndarray): Intermediate input matrix (n x n)
-        Total_Output (np.ndarray): Total output vector (n,)
-        Final_Demand (np.ndarray): Final demand vector (n,)
-    Returns:
-        np.ndarray: Leontief inverse matrix (n x n)
+    Creates the Leontief inverse matrix from the intermediate transaction matrix Z.
+    
+    The technical coefficient matrix A is defined as A_ij = Z_ij / x_j,
+    where x_j is the total output of sector j.
+    
+    One of Total_Output, Final_Demand, or Value_Added must be provided
+    to determine x_j.
     """
     n = Z.shape[0]
+
     if Total_Output is not None:
-        # Use provided total output
         output = Total_Output
-        A_coeff = Z / output.reshape(1, -1)  # Broadcasting over columns
     elif Final_Demand is not None:
-        # Compute output as column sum of Z + final demand
-        intermediate_inputs = Z.sum(axis=0)  # Sum over rows → input usage per sector
-        output = Z.sum(axis=1) + Final_Demand
-        A_coeff = Z / output.reshape(-1, 1)
+        # Total output = sum of intermediate sales (row sum) + final demand
+        output = Z.sum(axis=1) + Final_Demand  # x_i = sales from i to all + final
     elif Value_Added is not None:
-        # Compute output as intermediate inputs + value added
-        intermediate_inputs = Z.sum(axis=0)
-        output = intermediate_inputs + Value_Added
-        A_coeff = Z / output.reshape(1, -1)
+        # Total output = intermediate inputs (column sum) + value added
+        output = Z.sum(axis=0) + Value_Added  # x_j = inputs used by j + VA_j
     else:
         raise ValueError("At least one of Total_Output, Final_Demand, or Value_Added must be provided.")
-    
-    return np.linalg.inv(np.eye(n) - A_coeff)
+
+    # Ensure output is a 1D array of length n
+    if output.shape != (n,):
+        raise ValueError(f"Output must be ({n},), got {output.shape}")
+
+    # Avoid division by zero
+    output_safe = np.where(output == 0, 1e-10, output)
+
+    # Compute technical coefficients: A_ij = Z_ij / x_j
+    A_coeff = Z / output_safe  # Broadcasting over columns via numpy broadcasting (Z / x_j)
+
+    # Return Leontief inverse
+    try:
+        return np.linalg.inv(np.eye(n) - A_coeff)
+    except np.linalg.LinAlgError:
+        print("Singular matrix: (I - A) is not invertible.")
+        return np.eye(n)  # fallback
 
 
 # --- Demonstrations Functions ---
