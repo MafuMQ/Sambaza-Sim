@@ -6,7 +6,6 @@ from Production import ProductionsDatabase
 import random
 import json
 from Evaluators import *
-from growth.growth import create_leontief_inverse
 
 logging.basicConfig(level=logging.INFO)
 
@@ -96,7 +95,7 @@ def test_production_with_args(produce, isic, n=5):
 
         # Production fields
         production_inputs = fake.json()  # Random JSON for production inputs
-        production_added_value = fake.random_int(min=1, max=1000)
+        production_added_values = fake.json()
         production_rate = fake.random_int(min=1, max=100)
         production_material_efficiency = fake.random_int(min=1, max=100)
         production_labour_efficiency = fake.random_int(min=1, max=100)
@@ -120,7 +119,7 @@ def test_production_with_args(produce, isic, n=5):
         # pdb.add_production(name=name, id_number=id_number, producer=producer, produce=produce, produce_name=produce_name)
         pdb.add_production(
             name=name, id_number=id_number, isic=isic, producer=producer, produce=produce, produce_name=produce_name,
-            production_inputs=production_inputs, production_added_value=production_added_value,
+            production_inputs=production_inputs, production_added_values=production_added_values,
             production_rate=production_rate, production_material_efficiency=production_material_efficiency,
             production_labour_efficiency=production_labour_efficiency, production_energy_efficiency=production_energy_efficiency,
             contact_name=contact_name, contact_email=contact_email, contact_phone=contact_phone,
@@ -134,11 +133,14 @@ def test_production_inputs():
     gdb = GoodsDatabase()
     existing_goods = gdb.get_all_goods()
     existing_goods_isic = [good.isic for good in existing_goods]
+    value_added_types = ["wages","surplus","taxes","mixed_income"]
     productions = pdb.get_all_productions()
     for production in productions:
         if production.name != "IMPORT":  # pyright: ignore[reportGeneralTypeIssues] # Skip IMPORT productions 
-            inputs = {random.choice(existing_goods_isic): fake.random_int(min=1, max=100) for _ in range(3)}
-            pdb.update_production(int(production.id), production_inputs=inputs) # pyright: ignore[reportArgumentType]
+            # inputs = {random.choice(existing_goods_isic): fake.random_int(min=1, max=100) for _ in range(3)} looks more realistic if there isn't a row/column with only zeros
+            inputs = {isic: fake.random_int(min=1, max=100) for isic in existing_goods_isic}
+            added_values = {value_type: fake.random_int(min=1, max=50) for value_type in value_added_types}
+            pdb.update_production(int(production.id), production_inputs=inputs, production_added_values=added_values)  # pyright: ignore[reportArgumentType]
 
 def test_setup():
     print("Testing Producer:")
@@ -157,16 +159,3 @@ def test_setup():
     print("Evaluation of Indices Inputs and Prices completed.\nEvaluating Indices Production Inputs to Matrix:")
     evaluate_indicies_production_inputs_to_matrix()
     print("Evaluation of Indices Production Inputs to Matrix completed.")
-
-if __name__ == "__main__":
-    # test_setup()
-    print("Evaluation of Indices Inputs and Prices completed.\nEvaluating Indices Production Inputs to Matrix:")
-    A_matrix = evaluate_indicies_production_inputs_to_matrix()
-    print("Evaluation of Indices Production Inputs to Matrix completed.")
-    print(create_leontief_inverse(A_matrix))
-
-#NOTE: every good has an import producer
-
-#NOTE -1 issue -- this issue comes from e.g. A2244_121_482 = 1 * A9999_999_999 will auto resolve to 0 = 1 * A9999_999_999 - A2244_121_482
-
-#ADVANCED: invest for.. employment & for productivity

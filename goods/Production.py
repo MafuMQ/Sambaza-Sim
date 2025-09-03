@@ -26,7 +26,7 @@ class Production(Base):
     produce_name = Column(String, nullable=False)  # Name of the produced item
 
     production_inputs = Column(JSON)  # Inputs required for production in JSON format
-    production_added_value = Column(Integer)  # Value added by the production method
+    production_added_values = Column(JSON)  # value added components in JSON format
     production_rate = Column(Integer)  # Rate of production
     production_material_efficiency = Column(Integer)  # Efficiency of the production method
     production_labour_efficiency = Column(Integer)  # Labour efficiency of the production method
@@ -46,7 +46,9 @@ class Production(Base):
     address_country = Column(String)
     address_postal_code = Column(String)
 
-    price = Column(String, nullable=True) # Null price means it is not applicable, i.e. in house barter production
+    total_inputs_cost = Column(Integer, nullable=True)  # Total input price used in production
+    total_value_added = Column(Integer, nullable=True)  # Total value added by the production method
+    price = Column(String, nullable=True) # Null price means it is not applicable, i.e. in-house barter production
 
     def __repr__(self) -> str:
         return f"<Production(name={self.name}, id_number={self.id_number})>"

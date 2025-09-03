@@ -1,83 +1,4 @@
-import numpy as np
-import pandas as pd
-
-# --- IO Table Loading Functions ---
-
-def load_io_table_from_csv(csv_path: str, trim_extras: bool = True) -> np.ndarray:
-    """
-    Loads the intermediate input matrix (A) from the CSV file.
-    If trim_extras is True (default), removes the last two rows and columns (e.g., Value Added, Total Input, Final Demand, Total Output).
-    If trim_extras is False, loads the full matrix as-is.
-    """
-    df = pd.read_csv(csv_path, index_col=0)
-    if trim_extras:
-        # Remove the last two rows and columns (Value Added, Total Input, Final Demand, Total Output)
-        A = df.iloc[:-2, :-2].fillna(0).values
-    else:
-        A = df.fillna(0).values
-    return A
-
-def load_io_table_from_sqlite(name: str) -> np.ndarray:
-    # Placeholder for future implementation
-    # TODO: Implement loading from SQLite database, as well as for the FinalDemand and ValueAdded classes
-    return np.array([])
-
-def load_io_table(table_type: str, name: str, trim_extras: bool = True) -> np.ndarray:
-    if table_type == 'csv':
-        return load_io_table_from_csv(name, trim_extras)
-    elif table_type == 'sqlite':
-        return load_io_table_from_sqlite(name) 
-    else:
-        raise ValueError(f"Unknown table type: {table_type}")
-
-# --- Economic Analysis Functions ---
-
-def create_leontief_inverse(
-    Z: np.ndarray,
-    Total_Output: np.ndarray = None,
-    Final_Demand: np.ndarray = None,
-    Value_Added: np.ndarray = None
-) -> np.ndarray:
-    """
-    Creates the Leontief inverse matrix from the intermediate transaction matrix Z.
-    
-    The technical coefficient matrix A is defined as A_ij = Z_ij / x_j,
-    where x_j is the total output of sector j.
-    
-    One of Total_Output, Final_Demand, or Value_Added must be provided
-    to determine x_j.
-    """
-    n = Z.shape[0]
-
-    if Total_Output is not None:
-        output = Total_Output
-    elif Final_Demand is not None:
-        # Total output = sum of intermediate sales (row sum) + final demand
-        output = Z.sum(axis=1) + Final_Demand  # x_i = sales from i to all + final
-    elif Value_Added is not None:
-        # Total output = intermediate inputs (column sum) + value added
-        output = Z.sum(axis=0) + Value_Added  # x_j = inputs used by j + VA_j
-    else:
-        raise ValueError("At least one of Total_Output, Final_Demand, or Value_Added must be provided.")
-
-    # Ensure output is a 1D array of length n
-    if output.shape != (n,):
-        raise ValueError(f"Output must be ({n},), got {output.shape}")
-
-    # Avoid division by zero
-    output_safe = np.where(output == 0, 1e-10, output)
-
-    # Compute technical coefficients: A_ij = Z_ij / x_j
-    A_coeff = Z / output_safe  # Broadcasting over columns via numpy broadcasting (Z / x_j)
-
-    # Return Leontief inverse
-    try:
-        return np.linalg.inv(np.eye(n) - A_coeff)
-    except np.linalg.LinAlgError:
-        print("Singular matrix: (I - A) is not invertible.")
-        return np.eye(n)  # fallback
-
-
+from Evaluators import *
 # --- Demonstrations Functions ---
 
 def demonstrate_demand_shock(table_type: str, table_name: str, trim_table: bool, final_demand: np.ndarray, output: np.ndarray, shock_vector: list):
@@ -140,19 +61,28 @@ def demonstrate_technological_improvement(
     print("Difference:", output_improved - output_base)
     return output_improved
 
-# --- Example Usage ---
-
-if __name__ == "__main__":
+def test_csv_import_and_creation_of_leontieff_inverses():
     # Manually provide final demand and output vectors for 'one.csv'
     final_demand = np.array([40, 70, 95])
     output = np.array([100, 150, 150]) #this is neccessary if the table is not normalized
     print(create_leontief_inverse(load_io_table('csv', 'io1.csv', True), Total_Output=output))
     print(create_leontief_inverse(load_io_table('csv', 'io1.csv', True), Final_Demand=final_demand))
     print(create_leontief_inverse(load_io_table('csv', 'io1.csv', True), Value_Added=np.array([65,50,90])))
-    # demonstrate_demand_shock('csv', 'io1.csv', True, final_demand, output, [10, 0, -5])
+
+def test_shocks_and_improvents():
+    # Manually provide final demand and output vectors for 'one.csv'
+    final_demand = np.array([40, 70, 95])
+    output = np.array([100, 150, 150]) #this is neccessary if the table is not normalized
+    demonstrate_demand_shock('csv', 'io1.csv', True, final_demand, output, [10, 0, -5])
 
     # To use technological improvement, provide two tables: base and improved
-    # demonstrate_technological_improvement('csv', 'io1.csv', 'io2.csv', True, final_demand, output)
+    demonstrate_technological_improvement('csv', 'io1.csv', 'io2.csv', True, final_demand, output)
+
+# --- Example Usage ---
+
+if __name__ == "__main__":
+    test_csv_import_and_creation_of_leontieff_inverses()
+    test_shocks_and_improvents()
 
 # TODO break down value added & final demand
 

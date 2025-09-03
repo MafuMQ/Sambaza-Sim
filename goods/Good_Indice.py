@@ -22,16 +22,19 @@ class GoodIndice(Base):
 
     # Index fields
     production_inputs = Column(JSON)  # Inputs required for production in JSON format
+    production_added_values = Column(JSON)  # Value added for the good
+    total_inputs_cost = Column(Integer, nullable=True)  # Total input price used in production
+    total_value_added = Column(Integer, nullable=True)  # Total value added by the production method
     price = Column(Integer, nullable=True)  # Price of the good
     price_history = Column(String)  # Historical price data in JSON format
     quantity = Column(Integer, nullable=False)  # Quantity of the good
 
     def __repr__(self) -> str:
-        return f"<GoodIndice(id={self.id}, name='{self.name}', id_number={self.id_number}, isic='{self.isic}', price={self.price})>"
+        return f"<GoodIndice(id={self.id}, name='{self.name}', id_number={self.id_number}, isic='{self.isic}', price={self.price}, production_added_values={self.production_added_values})>"
 
     def __str__(self) -> str:
-        return f"GoodIndice(name='{self.name}', id_number={self.id_number}, isic={self.isic}, price={self.price}, quantity={self.quantity})"
-    
+        return f"GoodIndice(name='{self.name}', id_number={self.id_number}, isic={self.isic}, price={self.price}, quantity={self.quantity}, production_added_values={self.production_added_values})"
+
 class GoodsIndiceDatabase:
     """Database manager for Good Indices with proper session handling."""
     
@@ -56,13 +59,18 @@ class GoodsIndiceDatabase:
         finally:
             session.close()  # Ensure the session is closed after use
 
-    def add_good_indice(self, name: str, id_number: int, isic: str, quantity: int, price_history: Optional[str] = None):
+    def add_good_indice(self, name: str, id_number: int, isic: str, quantity: int):
         """Add a new good indice to the database with error handling."""
         try:
             with self.get_session() as session:
-                good_indice = GoodIndice(name=name, id_number=id_number, isic=isic, quantity=quantity, price_history=price_history)
+                good_indice = GoodIndice(
+                    name=name,
+                    id_number=id_number,
+                    isic=isic,
+                    quantity=quantity,
+                )
                 session.add(good_indice)
-                session.flush()  # Ensure ID is generated
+                session.flush()
                 logger.info(f"Added good indice: {good_indice}")
         except Exception as e:
             logger.error(f"Failed to add good indice: {e}")
@@ -134,6 +142,24 @@ class GoodsIndiceDatabase:
                     return None
         except Exception as e:
             logger.error(f"Failed to update good indice with id_number {id_number}: {e}")
+            return None
+        
+    def update_good_indice_by_isic(self, isic: str, **kwargs) -> Optional[GoodIndice]:
+        """Update a good indice's details by ISIC code (only one match expected)."""
+        try:
+            with self.get_session() as session:
+                good_indice = session.query(GoodIndice).filter_by(isic=isic).first()
+                if good_indice:
+                    for key, value in kwargs.items():
+                        setattr(good_indice, key, value)
+                    session.commit()
+                    logger.info(f"Updated good indice for ISIC {isic}: {good_indice}")
+                    return good_indice
+                else:
+                    logger.warning(f"No good indice found with ISIC: {isic}")
+                    return None
+        except Exception as e:
+            logger.error(f"Failed to update good indice with ISIC {isic}: {e}")
             return None
         
     def delete_good_indice(self, id_number: int) -> bool:
