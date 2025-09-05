@@ -1,0 +1,7 @@
+sqlalchemy
+sympy
+numpy
+pandas
+faker
+matplotlib
+ipywidgets
