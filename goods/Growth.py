@@ -96,7 +96,7 @@ if __name__ == "__main__":
 # be used to show/demonstrate inflation/deflation. How?. 
 
 # TODO apply and evaluate investment/change (also be able to apply tax and tarrifs) 1, without breakdown 2, with breakdown
-# TODO rank investments based on evaluated result
+# TODO rank investments based on evaluated result*
 # TODO friendly for business and soverign fiscal
 
 # We can evaluate/imply value added from the table from the total output and intermediate inputs

@@ -22,4 +22,4 @@ if __name__ == "__main__":
     # demonstrate_demand_shock_db(np.array([40, 70, 95, 40, 75]), [10, 0, -5, 0, 0])
 
     # TODO demonstrate technological change
-    test_technological_change(np.array([40, 70, 95, 40, 75]))
+    test_technological_change(np.array([40, 70, 95, 110, 75]))
