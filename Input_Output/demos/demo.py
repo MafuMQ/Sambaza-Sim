@@ -26,7 +26,7 @@ if __name__ == "__main__":
     # demonstrate_demand_shock_db(np.array([40, 70, 95, 40, 75]), [10, 0, -5, 0, 0])
 
     # TODO demonstrate technological change
-    demonstrate_technological_change(np.array([40, 70, 95, 110, 75]))
+    # demonstrate_technological_change(np.array([40, 70, 95, 110, 75]))
 
     # TODO demonstrate technological improvement
-    # demonstrate_technological_improvement(np.array([40, 70, 95, 110, 75]))
+    demonstrate_technological_improvement(final_demand=np.array([40, 70, 95, 110, 75]), improvement_percentage=100, improvement_type="total_cost")
