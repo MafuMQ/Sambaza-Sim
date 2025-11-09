@@ -10,6 +10,142 @@ import pandas as pd
 
 fake = faker.Faker()
 
+def perform_detailed_model_verification(
+    sector_names, 
+    output_before, output_after,
+    intermediate_inputs_before, intermediate_inputs_after,
+    value_added_before, value_added_after,
+    final_demand,
+    leontief_inv_before, leontief_inv_after,
+    A_before, A_after,
+    va_matrix_before_new, va_matrix_after_new,
+    va_vector_before_new, va_vector_after_new
+):
+    """
+    Perform detailed verification of input-output model consistency.
+    
+    Args:
+        sector_names: List of sector names
+        output_before/after: Output vectors before/after technological change
+        intermediate_inputs_before/after: Intermediate input vectors
+        value_added_before/after: Value added vectors
+        final_demand: Final demand vector
+        leontief_inv_before/after: Leontief inverse matrices
+        A_before/after: Input coefficient matrices
+        va_matrix_before_new/after_new: Value added matrices
+        va_vector_before_new/after_new: Value added vectors
+    """
+    print(f'\n{"-"*100}')
+    print("DETAILED MODEL VERIFICATION")
+    print(f'{"-"*100}')
+    
+    # 1. Sector-by-sector accounting identity checks
+    print("\n1. SECTOR-BY-SECTOR ACCOUNTING IDENTITY CHECKS:")
+    print("   X_i = A_i * X + VA_i (for each sector i)")
+    
+    for i, sector in enumerate(sector_names):
+        # Before technological change
+        calculated_output_before = intermediate_inputs_before[i] + value_added_before[i]
+        error_before = abs(output_before[i] - calculated_output_before)
+        
+        # After technological change
+        calculated_output_after = intermediate_inputs_after[i] + value_added_after[i]
+        error_after = abs(output_after[i] - calculated_output_after)
+        
+        print(f"   {sector}:")
+        print(f"     Before: X={output_before[i]:.3f}, A*X+VA={calculated_output_before:.3f}, Error={error_before:.6f}")
+        print(f"     After:  X={output_after[i]:.3f}, A*X+VA={calculated_output_after:.3f}, Error={error_after:.6f}")
+    
+    # 2. Total economy checks
+    print("\n2. TOTAL ECONOMY CHECKS:")
+    total_output_before = np.sum(output_before)
+    total_intermediate_before = np.sum(intermediate_inputs_before)
+    total_va_before = np.sum(value_added_before)
+    total_fd = np.sum(final_demand)
+    
+    total_output_after = np.sum(output_after)
+    total_intermediate_after = np.sum(intermediate_inputs_after)
+    total_va_after = np.sum(value_added_after)
+    
+    print(f"   Before Technological Change:")
+    print(f"     Total Output: {total_output_before:.3f}")
+    print(f"     Total Intermediate Inputs: {total_intermediate_before:.3f}")
+    print(f"     Total Value Added: {total_va_before:.3f}")
+    print(f"     Total Final Demand: {total_fd:.3f}")
+    print(f"     Check (Output = Intermediate + VA): {total_output_before:.3f} = {total_intermediate_before:.3f} + {total_va_before:.3f}")
+    print(f"     Error: {abs(total_output_before - (total_intermediate_before + total_va_before)):.6f}")
+    print(f"     Check (Output - Intermediate = FD): {total_output_before - total_intermediate_before:.3f} = {total_fd:.3f}")
+    print(f"     Error: {abs((total_output_before - total_intermediate_before) - total_fd):.6f}")
+    
+    print(f"   After Technological Change:")
+    print(f"     Total Output: {total_output_after:.3f}")
+    print(f"     Total Intermediate Inputs: {total_intermediate_after:.3f}")
+    print(f"     Total Value Added: {total_va_after:.3f}")
+    print(f"     Total Final Demand: {total_fd:.3f}")
+    print(f"     Check (Output = Intermediate + VA): {total_output_after:.3f} = {total_intermediate_after:.3f} + {total_va_after:.3f}")
+    print(f"     Error: {abs(total_output_after - (total_intermediate_after + total_va_after)):.6f}")
+    print(f"     Check (Output - Intermediate = FD): {total_output_after - total_intermediate_after:.3f} = {total_fd:.3f}")
+    print(f"     Error: {abs((total_output_after - total_intermediate_after) - total_fd):.6f}")
+    
+    # 3. Leontief inverse verification
+    print("\n3. LEONTIEF INVERSE VERIFICATION:")
+    print("   X = (I - A)^(-1) * F")
+    
+    # Before
+    calculated_output_leontief_before = leontief_inv_before @ final_demand
+    leontief_error_before = np.max(np.abs(output_before - calculated_output_leontief_before))
+    print(f"   Before: Max error between X and L*F: {leontief_error_before:.6f}")
+    
+    # After
+    calculated_output_leontief_after = leontief_inv_after @ final_demand
+    leontief_error_after = np.max(np.abs(output_after - calculated_output_leontief_after))
+    print(f"   After:  Max error between X and L*F: {leontief_error_after:.6f}")
+    
+    # 4. Matrix consistency checks
+    print("\n4. MATRIX CONSISTENCY CHECKS:")
+    # Check that (I - A) * L = I
+    identity_before = np.eye(len(A_before))
+    product_before = (identity_before - A_before) @ leontief_inv_before
+    identity_error_before = np.max(np.abs(product_before - identity_before))
+    
+    identity_after = np.eye(len(A_after))
+    product_after = (identity_after - A_after) @ leontief_inv_after
+    identity_error_after = np.max(np.abs(product_after - identity_after))
+    
+    print(f"   Before: Max error in (I-A)*L = I: {identity_error_before:.6f}")
+    print(f"   After:  Max error in (I-A)*L = I: {identity_error_after:.6f}")
+    
+    # 5. Value added matrix consistency
+    print("\n5. VALUE ADDED MATRIX CONSISTENCY:")
+    va_matrix_sum_before = np.sum(va_matrix_before_new, axis=0)
+    va_vector_error_before = np.max(np.abs(va_matrix_sum_before - va_vector_before_new))
+    
+    va_matrix_sum_after = np.sum(va_matrix_after_new, axis=0)
+    va_vector_error_after = np.max(np.abs(va_matrix_sum_after - va_vector_after_new))
+    
+    print(f"   Before: Max error between sum of VA matrix columns and VA vector: {va_vector_error_before:.6f}")
+    print(f"   After:  Max error between sum of VA matrix columns and VA vector: {va_vector_error_after:.6f}")
+    
+    # 6. Overall model assessment
+    print(f"\n6. OVERALL MODEL ASSESSMENT:")
+    total_errors = [leontief_error_before, leontief_error_after, identity_error_before, identity_error_after, 
+                   va_vector_error_before, va_vector_error_after]
+    max_error = max(total_errors)
+    
+    if max_error < 1e-10:
+        status = "EXCELLENT"
+    elif max_error < 1e-6:
+        status = "GOOD"
+    elif max_error < 1e-3:
+        status = "ACCEPTABLE"
+    else:
+        status = "POOR - CHECK MODEL"
+    
+    print(f"   Maximum error across all checks: {max_error:.2e}")
+    print(f"   Model consistency status: {status}")
+    
+    print(f'{"-"*100}')
+
 def demonstrate_demand_shock_db(final_demand: np.ndarray, shock_vector: list):
     """
     Demonstrates the effect of a demand shock on the IO table.
@@ -37,6 +173,9 @@ def demonstrate_demand_shock_db(final_demand: np.ndarray, shock_vector: list):
     return new_output
 
 def demonstrate_technological_change_random(final_demand: np.ndarray, target_production_tech_change: Optional[Investment] = None):
+    def print_vector_with_labels(vector, labels, title):
+        df = pd.DataFrame(vector.reshape(-1, 1), index=labels, columns=[title])
+        print(f"\n{title}:\n", df)
     def print_matrix_with_totals(matrix, row_labels, col_labels, title):
         df = pd.DataFrame(matrix, index=row_labels, columns=col_labels)
         df['Row Total'] = df.sum(axis=1)
@@ -103,42 +242,57 @@ def demonstrate_technological_change_random(final_demand: np.ndarray, target_pro
     va_matrix_before_new = va_ratios_before * va_vector_before_new.reshape(1, -1)
     va_matrix_after_new = va_ratios_after * va_vector_after_new.reshape(1, -1)
 
+
     print(f'{"-"*100}\n{"-"*100}')
     print_matrix_with_totals(Flows_before, sector_names, sector_names, "Original Flow Matrix (A)")
     print_va_matrix_with_totals(va_matrix_before, value_added_types, sector_names, "Value Added Matrix Flow BEFORE Technological Change")
     print_matrix_with_totals(leontief_inv_before, sector_names, sector_names, "Original Leontief Inverse")
 
-    resolved_flow_before = leontief_inv_before * final_demand
-    print_matrix_with_totals(resolved_flow_before, sector_names, sector_names, "Resolved Flow Using Original Technology (FD & VA Inclusive)")
+    # Calculate intermediate inputs (A*X), value added, and check identities
+    A_before = np.eye(len(leontief_inv_before)) - np.linalg.inv(leontief_inv_before)
+    intermediate_inputs_before = A_before @ output_before
+    value_added_before = output_before - intermediate_inputs_before
+
     print("Final Demand:", final_demand)
-    print("Total Output: ", output_before)
-    print("Value Added: ", va_vector_before_new)
-    print("Total Input: ", np.sum(resolved_flow_before, axis=0))
+    print("Output (X):", output_before)
+    print("Intermediate Inputs (A*X):", intermediate_inputs_before)
+    print("Value Added (X - A*X):", value_added_before)
+    print("Check: Output == Intermediate Inputs + Value Added:", np.allclose(output_before, intermediate_inputs_before + value_added_before))
+    print("Check: Output - Intermediate Inputs == Final Demand:", np.allclose(output_before - intermediate_inputs_before, final_demand))
 
     print("\nNew Flow Matrix:")
     print_matrix_with_totals(Flows_after, sector_names, sector_names, "New Flow Matrix (A)")
     print_va_matrix_with_totals(va_matrix_after, value_added_types, sector_names, "Value Added Matrix Flow AFTER Technological Change")
     print_matrix_with_totals(leontief_inv_after, sector_names, sector_names, "New Leontief Inverse")
-    resolved_flow_after = leontief_inv_after * final_demand
-    print_matrix_with_totals(resolved_flow_after, sector_names, sector_names, "Resolved Flow Using Updated Technology (FD & VA Inclusive)")
+
+    A_after = np.eye(len(leontief_inv_after)) - np.linalg.inv(leontief_inv_after)
+    intermediate_inputs_after = A_after @ output_after
+    value_added_after = output_after - intermediate_inputs_after
+
     print("Final Demand:", final_demand)
-    print("Total Output: ", output_after)
-    print("Value Added: ", va_vector_after_new)
-    print("Total Input: ", np.sum(resolved_flow_after, axis=0))
+    print("Output (X):", output_after)
+    print("Intermediate Inputs (A*X):", intermediate_inputs_after)
+    print("Value Added (X - A*X):", value_added_after)
+    print("Check: Output == Intermediate Inputs + Value Added:", np.allclose(output_after, intermediate_inputs_after + value_added_after))
+    print("Check: Output - Intermediate Inputs == Final Demand:", np.allclose(output_after - intermediate_inputs_after, final_demand))
 
     # Show absolute and relative change in resolved flows (moved here for correct order)
+    resolved_flow_before = leontief_inv_before @ final_demand
+    resolved_flow_after = leontief_inv_after @ final_demand
     resolved_flow_change_abs = resolved_flow_after - resolved_flow_before
     with np.errstate(divide='ignore', invalid='ignore'):
         resolved_flow_change_rel = np.where(resolved_flow_before != 0, (resolved_flow_after - resolved_flow_before) / resolved_flow_before * 100, 0)
-    print_matrix_with_totals(resolved_flow_change_abs, sector_names, sector_names, "Change in Resolved Flow (Absolute)")
-    print_matrix_with_totals(resolved_flow_change_rel, sector_names, sector_names, "Change in Resolved Flow (Percentage)")
+    # Print as matrix if 2D, else as vector
+    if resolved_flow_change_abs.ndim == 2 and resolved_flow_change_abs.shape[0] == resolved_flow_change_abs.shape[1]:
+        print_matrix_with_totals(resolved_flow_change_abs, sector_names, sector_names, "Change in Resolved Flow (Absolute)")
+        print_matrix_with_totals(resolved_flow_change_rel, sector_names, sector_names, "Change in Resolved Flow (Percentage)")
+    else:
+        print_vector_with_labels(resolved_flow_change_abs, sector_names, "Change in Resolved Flow (Absolute)")
+        print_vector_with_labels(resolved_flow_change_rel, sector_names, "Change in Resolved Flow (Percentage)")
 
-    print("Final Demand:", final_demand)
-    print("Original Output:", output_before)
     print("Technological Change:", investment)
-    print("New Output After Technological Change Implementation:", output_after)
-    print("Difference (Absolute):", output_after - output_before)
-    print("Difference (Percentage):", (output_after - output_before) / output_before * 100)
+    print("Difference in Output (Absolute):", output_after - output_before)
+    print("Difference in Output (Percentage):", (output_after - output_before) / output_before * 100)
 
     print("-"*100)
     # Show change in value added matrix with headings and totals
@@ -149,25 +303,18 @@ def demonstrate_technological_change_random(final_demand: np.ndarray, target_pro
         percent_change = np.where(va_matrix_before_new != 0, (va_matrix_after_new - va_matrix_before_new) / va_matrix_before_new * 100, 0)
     print_va_matrix_with_totals(percent_change, value_added_types, sector_names, "Change in Value Added Matrix (Percentage)")
 
-    # Verification: Output = Intermediate Inputs + Value Added
-    print(f'{"-"*100}\n{"-"*100}')
-    print("\nVerification - Output should equal Intermediate Inputs + Value Added:")
-    A_before = np.eye(len(leontief_inv_before)) - np.linalg.inv(leontief_inv_before)
-    intermediate_inputs_before = A_before @ output_before  # 1D vector
-    A_After = np.eye(len(leontief_inv_after)) - np.linalg.inv(leontief_inv_after)
-    intermediate_inputs_after = A_After @ output_after  # 1D vector
-    total_inputs_before = np.sum(intermediate_inputs_before, axis=0)
-    total_inputs_after = np.sum(intermediate_inputs_after, axis=0)
-
-    print("Before - Total Output:", output_before)
-    print("Before - Total Input:", intermediate_inputs_before)
-    print(f"Before - Final Demand Check (should be {np.sum(final_demand)}):", (np.sum(output_before) - np.sum(total_inputs_before)).round(10)) #TODO how does this work
-    print("Before - Sum check (should be ~0):", (np.sum(output_before) - np.sum(np.sum(leontief_inv_before * final_demand, axis=0))).round(10))
-
-    print("\nAfter - Total Output:", output_after)
-    print("After - Total Input:", intermediate_inputs_after)
-    print(f"After - Final Demand Check (should be {np.sum(final_demand)}):", (np.sum(output_after) - np.sum(total_inputs_after)).round(10))
-    print("After - Sum check (should be ~0):", (np.sum(output_after) - np.sum(np.sum(leontief_inv_after * final_demand, axis=0))).round(10))
+    # Call detailed verification function
+    perform_detailed_model_verification(
+        sector_names, 
+        output_before, output_after,
+        intermediate_inputs_before, intermediate_inputs_after,
+        value_added_before, value_added_after,
+        final_demand,
+        leontief_inv_before, leontief_inv_after,
+        A_before, A_after,
+        va_matrix_before_new, va_matrix_after_new,
+        va_vector_before_new, va_vector_after_new
+    )
 
 def demonstrate_technological_change(final_demand: np.ndarray, target_production_tech_change: Optional[Investment] = None, improvement_percentage: Optional[float] = 2.0, improvement_type: str = "total_cost", target_va_type: str | None = None, investment_cost: float | None = None):
     goods_db = GoodsDatabase()
