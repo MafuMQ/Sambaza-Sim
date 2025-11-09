@@ -1,8 +1,8 @@
 import logging
 from typing import List, Dict
-from Good import GoodsDatabase
-from Good_Indice import GoodsIndiceDatabase
-from Production import *
+from Input_Output.models.entities.Good import GoodsDatabase
+from Input_Output.models.entities.Good_Indice import GoodsIndiceDatabase
+from Input_Output.models.entities.Production import *
 import sympy as sp
 import typing as t
 import numpy as np
@@ -77,7 +77,7 @@ def evaluate_indicies():
                                 price=cheapest_production.price)  
 
 def evaluate_indicies_production_inputs_to_matrix(demoDB = False):
-    symbols, equations = evaluate_production_inputs_to_equations("indicies",demoDB=demoDB)
+    symbols, equations = evaluate_production_inputs_to_equations("indicies",Value_Added=False, demoDB=demoDB) #we are only evaluating the intermediate inputs here
     VA_symbols, VA_equations = evaluate_production_inputs_to_equations("indicies", Value_Added=True, demoDB=demoDB)
 
     A: sp.Matrix = evaluate_coefficients(symbols, equations)

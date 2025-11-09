@@ -1,5 +1,6 @@
-from Evaluators import *
-from Investment import *
+from Input_Output.util.Evaluators import *
+from Input_Output.models.entities.Investment import *
+from Input_Output.demos.util.Setup_Data import test_create_indice_investment
 import random
 import faker
 import shutil
@@ -8,29 +9,6 @@ import io
 import pandas as pd
 
 fake = faker.Faker()
-
-def demonstrate_demand_shock_csv(table_type: str, table_name: str, trim_table: bool, final_demand: np.ndarray, output: np.ndarray, shock_vector: list):
-    """
-    Demonstrates the effect of a demand shock on the IO table.
-    Args:
-        table_type (str): 'csv' or 'sqlite'
-        table_name (str): Path or name of the IO table
-        trim_table (bool): Whether to trim extras from the IO table
-        final_demand (np.ndarray): Final demand vector for each sector
-        output (np.ndarray): Output vector for each sector
-        shock_vector (list): List of demand shocks to apply to each sector (length = number of sectors)
-    """
-    A = load_io_table(table_type, table_name, trim_table)
-    leontief_inv = create_leontief_inverse(A, output)
-    new_final_demand = final_demand + np.array(shock_vector)
-    new_output = leontief_inv @ new_final_demand
-
-    print("Original Final Demand:", final_demand)
-    print("Shock Vector:", shock_vector)
-    print("New Final Demand:", new_final_demand)
-    print("Original Output:", output)
-    print("New Output after Demand Shock:", new_output)
-    return new_output
 
 def demonstrate_demand_shock_db(final_demand: np.ndarray, shock_vector: list):
     """
@@ -58,44 +36,7 @@ def demonstrate_demand_shock_db(final_demand: np.ndarray, shock_vector: list):
     print("Difference (Percentage):", (new_output - output) / output * 100)
     return new_output
 
-def demonstrate_technological_improvement_csv(
-    table_type: str,
-    base_table_name: str,
-    improved_table_name: str,
-    trim_table: bool,
-    final_demand: np.ndarray,
-    output: np.ndarray
-):
-    """
-    Demonstrates the effect of a technological improvement by comparing two IO tables:
-    the base table and the improved (technology) table.
-    Args:
-        table_type (str): 'csv' or 'sqlite'
-        base_table_name (str): Path or name of the base IO table
-        improved_table_name (str): Path or name of the improved IO table
-        trim_table (bool): Whether to trim extras from the IO table
-        final_demand (np.ndarray): Final demand vector for each sector
-        output (np.ndarray): Output vector for each sector (should match both tables)
-    """
-    # Load both IO tables
-    A_base = load_io_table(table_type, base_table_name, trim_table)
-    A_improved = load_io_table(table_type, improved_table_name, trim_table)
-
-    # Compute Leontief inverses
-    leontief_inv_base = create_leontief_inverse(A_base, output)
-    leontief_inv_improved = create_leontief_inverse(A_improved, output)
-
-    # Calculate outputs required to meet the same final demand
-    output_base = leontief_inv_base @ final_demand
-    output_improved = leontief_inv_improved @ final_demand
-
-    print("\n--- Technological Improvement (Table Comparison) ---")
-    print("Original Output:", output_base)
-    print("Output with Improved Technology (same final demand):", output_improved)
-    print("Difference:", output_improved - output_base)
-    return output_improved
-
-def test_technological_change(final_demand: np.ndarray, target_produce: Optional[Investment] = None):
+def demonstrate_technological_change(final_demand: np.ndarray, target_production_tech_change: Optional[Investment] = None):
     def print_matrix_with_totals(matrix, row_labels, col_labels, title):
         df = pd.DataFrame(matrix, index=row_labels, columns=col_labels)
         df['Row Total'] = df.sum(axis=1)
@@ -145,7 +86,7 @@ def test_technological_change(final_demand: np.ndarray, target_produce: Optional
         output_before = leontief_inv_before @ final_demand
 
         # Apply investment (technological change)
-        investment = test_create_indice_investment(random.choice(sector_names)) if target_produce is None else target_produce # pyright: ignore[reportArgumentType]
+        investment = test_create_indice_investment(random.choice(sector_names)) if target_production_tech_change is None else target_production_tech_change # pyright: ignore[reportArgumentType]
         investment.apply_investment()
 
         # After technological change
@@ -226,21 +167,36 @@ def test_technological_change(final_demand: np.ndarray, target_produce: Optional
     print(f"After - Final Demand Check (should be {np.sum(final_demand)}):", (np.sum(output_after) - np.sum(total_inputs_after)).round(10))
     print("After - Sum check (should be ~0):", (np.sum(output_after) - np.sum(np.sum(leontief_inv_after * final_demand, axis=0))).round(10))
 
-def test_create_indice_investment(produce_isic:str) -> Investment:
-    gdb = GoodsDatabase()
-    existing_goods = gdb.get_all_goods()
-    existing_goods_isic = [good.isic for good in existing_goods]
-    value_added_types = ["wages","surplus","taxes","mixed_income"]
-    # inputs = {random.choice(existing_goods_isic): fake.random_int(min=1, max=100) for _ in range(3)} looks more realistic if there isn't a row/column with only zeros
-    inputs = {isic: fake.random_int(min=1, max=100) for isic in existing_goods_isic}
-    added_values = {value_type: fake.random_int(min=1, max=50) for value_type in value_added_types}
-    investment = Investment(id=fake.random_int(min=1, max=1000), name=fake.word(), type_of_investment=InvestmentType.INDICE, produce_isic=produce_isic, implementation_cost=fake.random_number(digits=5))
-    investment.set_investment_metrics(inputs, added_values)
-    # investment.price_history = indice.price_history
-    # investment.quantity = indice.quantity
+def demonstrate_technological_improvement(final_demand: np.ndarray, target_production_tech_change: Optional[Investment] = None, improvement_percentage: Optional[float] = 2.0, improvement_type: str = "total_cost", target_va_type: str | None = None, investment_cost: float | None = None):
+    goods_db = GoodsDatabase()
+    goods_list = goods_db.get_all_goods()
+    sector_names = [good.isic for good in goods_list]
+    # target_production_tech_change = random.choice(sector_names) if target_production_tech_change is None else target_production_tech_change # pyright: ignore[reportAssignmentType]
+    # Prefer the first for ease of analysis
+    target_production_tech_change = sector_names[0] if target_production_tech_change is None else target_production_tech_change # pyright: ignore[reportAssignmentType]
+    investment = test_create_indice_investment(produce_isic=target_production_tech_change,improvement_percentage=improvement_percentage,improvement_type=improvement_type,investment_cost=investment_cost) # pyright: ignore[reportArgumentType]
+    demonstrate_technological_change(final_demand=final_demand, target_production_tech_change=investment)
 
-    return investment
+# TODO break down value added & final demand
 
+# there is two types of breakdowns, raw breakdowns with values, and simply just totals with percentages
+# regard the known transformation constraints i.e. consumer spending cannot be higher than total wages etc.
 
-def demonstrate_technological_improvement_db():
-    pass
+# final demand directs production, therefore absolute value added will depend on the amount of final demand,
+# we are assuming all of value added is immediately spent as a final demand, as we did so in the transformation
+# models. If money is saved, e.g. by the employees, there is actaully less household consumption (C), the figures
+# still remain in the model though, representing a future reserve for a future purchase. Not conserving this may
+# be used to show/demonstrate inflation/deflation. How?. 
+
+# TODO apply and evaluate investment/change (also be able to apply tax and tarrifs) 1, without breakdown 2, with breakdown
+# TODO rank investments based on evaluated result*
+# TODO friendly for business and soverign fiscal
+
+# We can evaluate/imply value added from the table from the total output and intermediate inputs
+# For now, we demonstrate improvements on the technology, what it has on the output and economy
+# First the raw inputs, capital saving improvements
+# Then, we demonstrate labour saving improvements (nothing will change for now, we demonstrate this on second section)
+
+# we must then break down added value and final demand, to demonstrate the impact of both capital and labour saving improvements
+# finally, we simulate saving and investment
+# we'll start by "applying" the change to an io table

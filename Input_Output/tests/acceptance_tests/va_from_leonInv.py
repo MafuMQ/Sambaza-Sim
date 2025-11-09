@@ -1,5 +1,8 @@
 import numpy as np
 
+'''This script seeks to evaluate whether resolving/calculating 
+the value added from a given Leontief inverse is possible, and valid'''
+
 # Example: 3-sector economy
 print("=== Value Added Calculation from Leontief Inverse ===\n")
 

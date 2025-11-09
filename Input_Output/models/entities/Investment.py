@@ -1,5 +1,5 @@
-from Good_Indice import *
-from Production import *
+from .Good_Indice import *
+from .Production import *
 from enum import Enum
 
 
@@ -47,8 +47,7 @@ class Investment:
             raise ValueError(f"Unknown investment type: {self.type}")
 
     def apply_investment_on_production(self):
-        ptdb = ProductionsDatabase()
-        pass
+        raise NotImplementedError("Method apply_investment_on_production is not implemented yet.")
 
     def apply_investment_on_indicie(self, use_demo_db: bool = True):
         gidb = GoodsIndiceDatabase(database_url="sqlite:///dataDEMO.db") if use_demo_db else GoodsIndiceDatabase()
