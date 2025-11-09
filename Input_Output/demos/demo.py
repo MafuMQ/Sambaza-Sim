@@ -7,7 +7,7 @@ from Input_Output.models.entities.Investment import *
 from Input_Output.demos.util.Setup_Data import *
 from Input_Output.demos.util.Demonstrators import *
 
-if __name__ == "__main__":
+def setup():
     setup_random_sample_data()
     print("Evaluation of Indices Inputs and Prices completed.\nEvaluating Indices Production Inputs to Matrix:")
     # ---
@@ -22,11 +22,15 @@ if __name__ == "__main__":
     print(create_leontief_inverse(A_matrix, Value_Added=Value_Added_Vector))
     # ---
 
+if __name__ == "__main__":
+    # Run Once
+    # setup()
+
     # TODO demonstrate demand shock
     # demonstrate_demand_shock_db(np.array([40, 70, 95, 40, 75]), [10, 0, -5, 0, 0])
 
     # TODO demonstrate technological change
-    # demonstrate_technological_change(np.array([40, 70, 95, 110, 75]))
+    demonstrate_technological_change_random(np.array([40, 70, 95, 110, 75]))
 
     # TODO demonstrate technological improvement
-    demonstrate_technological_improvement(final_demand=np.array([40, 70, 95, 110, 75]), improvement_percentage=100, improvement_type="total_cost")
+    # demonstrate_technological_change(final_demand=np.array([40, 70, 95, 110, 75]), improvement_percentage=90, improvement_type="intermediates")

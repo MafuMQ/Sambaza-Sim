@@ -1,6 +1,6 @@
 from Input_Output.util.Evaluators import *
 from Input_Output.models.entities.Investment import *
-from Input_Output.demos.util.Setup_Data import test_create_indice_investment
+from Input_Output.demos.util.Setup_Data import test_create_indice_investment, test_create_indice_investment_random
 import random
 import faker
 import shutil
@@ -36,7 +36,7 @@ def demonstrate_demand_shock_db(final_demand: np.ndarray, shock_vector: list):
     print("Difference (Percentage):", (new_output - output) / output * 100)
     return new_output
 
-def demonstrate_technological_change(final_demand: np.ndarray, target_production_tech_change: Optional[Investment] = None):
+def demonstrate_technological_change_random(final_demand: np.ndarray, target_production_tech_change: Optional[Investment] = None):
     def print_matrix_with_totals(matrix, row_labels, col_labels, title):
         df = pd.DataFrame(matrix, index=row_labels, columns=col_labels)
         df['Row Total'] = df.sum(axis=1)
@@ -86,7 +86,7 @@ def demonstrate_technological_change(final_demand: np.ndarray, target_production
         output_before = leontief_inv_before @ final_demand
 
         # Apply investment (technological change)
-        investment = test_create_indice_investment(random.choice(sector_names)) if target_production_tech_change is None else target_production_tech_change # pyright: ignore[reportArgumentType]
+        investment = test_create_indice_investment_random(random.choice(sector_names)) if target_production_tech_change is None else target_production_tech_change # pyright: ignore[reportArgumentType]
         investment.apply_investment()
 
         # After technological change
@@ -105,6 +105,7 @@ def demonstrate_technological_change(final_demand: np.ndarray, target_production
 
     print(f'{"-"*100}\n{"-"*100}')
     print_matrix_with_totals(Flows_before, sector_names, sector_names, "Original Flow Matrix (A)")
+    print_va_matrix_with_totals(va_matrix_before, value_added_types, sector_names, "Value Added Matrix Flow BEFORE Technological Change")
     print_matrix_with_totals(leontief_inv_before, sector_names, sector_names, "Original Leontief Inverse")
 
     resolved_flow_before = leontief_inv_before * final_demand
@@ -116,6 +117,7 @@ def demonstrate_technological_change(final_demand: np.ndarray, target_production
 
     print("\nNew Flow Matrix:")
     print_matrix_with_totals(Flows_after, sector_names, sector_names, "New Flow Matrix (A)")
+    print_va_matrix_with_totals(va_matrix_after, value_added_types, sector_names, "Value Added Matrix Flow AFTER Technological Change")
     print_matrix_with_totals(leontief_inv_after, sector_names, sector_names, "New Leontief Inverse")
     resolved_flow_after = leontief_inv_after * final_demand
     print_matrix_with_totals(resolved_flow_after, sector_names, sector_names, "Resolved Flow Using Updated Technology (FD & VA Inclusive)")
@@ -167,7 +169,7 @@ def demonstrate_technological_change(final_demand: np.ndarray, target_production
     print(f"After - Final Demand Check (should be {np.sum(final_demand)}):", (np.sum(output_after) - np.sum(total_inputs_after)).round(10))
     print("After - Sum check (should be ~0):", (np.sum(output_after) - np.sum(np.sum(leontief_inv_after * final_demand, axis=0))).round(10))
 
-def demonstrate_technological_improvement(final_demand: np.ndarray, target_production_tech_change: Optional[Investment] = None, improvement_percentage: Optional[float] = 2.0, improvement_type: str = "total_cost", target_va_type: str | None = None, investment_cost: float | None = None):
+def demonstrate_technological_change(final_demand: np.ndarray, target_production_tech_change: Optional[Investment] = None, improvement_percentage: Optional[float] = 2.0, improvement_type: str = "total_cost", target_va_type: str | None = None, investment_cost: float | None = None):
     goods_db = GoodsDatabase()
     goods_list = goods_db.get_all_goods()
     sector_names = [good.isic for good in goods_list]
@@ -175,7 +177,7 @@ def demonstrate_technological_improvement(final_demand: np.ndarray, target_produ
     # Prefer the first for ease of analysis
     target_production_tech_change = sector_names[0] if target_production_tech_change is None else target_production_tech_change # pyright: ignore[reportAssignmentType]
     investment = test_create_indice_investment(produce_isic=target_production_tech_change,improvement_percentage=improvement_percentage,improvement_type=improvement_type,investment_cost=investment_cost) # pyright: ignore[reportArgumentType]
-    demonstrate_technological_change(final_demand=final_demand, target_production_tech_change=investment)
+    demonstrate_technological_change_random(final_demand=final_demand, target_production_tech_change=investment)
 
 # TODO break down value added & final demand
 
