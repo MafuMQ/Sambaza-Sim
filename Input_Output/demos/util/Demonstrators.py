@@ -207,18 +207,17 @@ def demonstrate_technological_change_random(final_demand: np.ndarray, target_pro
         df.loc['Col Total'] = df.sum(axis=0)
         print(f"\n{title}:\n", df)
 
-    # --- Main Refactored Logic ---
-    goods_db = GoodsDatabase()
-    goods_list = goods_db.get_all_goods()
-    sector_names = [good.isic for good in goods_list]
-    value_added_types = ["wages", "surplus", "taxes", "mixed_income"]
-    sector_count = len(sector_names)
-
-    # Copy database for demo
-    shutil.copy2("data.db", "dataDEMO.db")
-
     # Suppress print output during investment application and matrix evaluation
     with contextlib.redirect_stdout(io.StringIO()):
+        # --- Main Refactored Logic ---
+        goods_db = GoodsDatabase()
+        goods_list = goods_db.get_all_goods()
+        sector_names = [good.isic for good in goods_list]
+        value_added_types = ["wages", "surplus", "taxes", "mixed_income"]
+        sector_count = len(sector_names)
+
+        # Copy database for demo
+        shutil.copy2("data.db", "dataDEMO.db")
         # Before technological change
         Flows_before, va_vector_before, va_matrix_before = evaluate_indicies_production_inputs_to_matrix(demoDB=True)
         leontief_inv_before = create_leontief_inverse(Flows_before, Value_Added=va_vector_before)
@@ -242,25 +241,36 @@ def demonstrate_technological_change_random(final_demand: np.ndarray, target_pro
     va_matrix_before_new = va_ratios_before * va_vector_before_new.reshape(1, -1)
     va_matrix_after_new = va_ratios_after * va_vector_after_new.reshape(1, -1)
 
+    print("Final Demand:", final_demand)
+    print("Technological Change Applied:", investment)
 
-    print(f'{"-"*100}\n{"-"*100}')
+    print(f'{"*"*100}\n{"*"*100}')
+    print(f'\n{"-"*100}')
+    print("BEFORE TECHNOLOGICAL CHANGE")
+    print(f'{"-"*100}')
     print_matrix_with_totals(Flows_before, sector_names, sector_names, "Original Flow Matrix (A)")
-    print_va_matrix_with_totals(va_matrix_before, value_added_types, sector_names, "Value Added Matrix Flow BEFORE Technological Change")
+    print_va_matrix_with_totals(va_matrix_before, value_added_types, sector_names, "Original Value Added Flow Matrix")
     print_matrix_with_totals(leontief_inv_before, sector_names, sector_names, "Original Leontief Inverse")
 
     # Calculate intermediate inputs (A*X), value added, and check identities
     A_before = np.eye(len(leontief_inv_before)) - np.linalg.inv(leontief_inv_before)
     intermediate_inputs_before = A_before @ output_before
     value_added_before = output_before - intermediate_inputs_before
+    resolved_flow_before = leontief_inv_before @ final_demand
+    resolved_flow_before_view = leontief_inv_before * final_demand
 
     print("Final Demand:", final_demand)
     print("Output (X):", output_before)
     print("Intermediate Inputs (A*X):", intermediate_inputs_before)
+    print_matrix_with_totals(resolved_flow_before_view, sector_names, sector_names, "Resolved Flow Using Original Technology (FD & VA Inclusive)")
+    print_va_matrix_with_totals(va_matrix_before_new, value_added_types, sector_names, "Resolved Value Added Matrix BEFORE Technological Change")
     print("Value Added (X - A*X):", value_added_before)
     print("Check: Output == Intermediate Inputs + Value Added:", np.allclose(output_before, intermediate_inputs_before + value_added_before))
     print("Check: Output - Intermediate Inputs == Final Demand:", np.allclose(output_before - intermediate_inputs_before, final_demand))
 
-    print("\nNew Flow Matrix:")
+    print(f'\n{"-"*100}')
+    print("AFTER TECHNOLOGICAL CHANGE")
+    print(f'{"-"*100}')
     print_matrix_with_totals(Flows_after, sector_names, sector_names, "New Flow Matrix (A)")
     print_va_matrix_with_totals(va_matrix_after, value_added_types, sector_names, "Value Added Matrix Flow AFTER Technological Change")
     print_matrix_with_totals(leontief_inv_after, sector_names, sector_names, "New Leontief Inverse")
@@ -268,17 +278,25 @@ def demonstrate_technological_change_random(final_demand: np.ndarray, target_pro
     A_after = np.eye(len(leontief_inv_after)) - np.linalg.inv(leontief_inv_after)
     intermediate_inputs_after = A_after @ output_after
     value_added_after = output_after - intermediate_inputs_after
+    resolved_flow_after = leontief_inv_after @ final_demand
+    resolved_flow_after_view = leontief_inv_after * final_demand
 
     print("Final Demand:", final_demand)
     print("Output (X):", output_after)
     print("Intermediate Inputs (A*X):", intermediate_inputs_after)
+    print_matrix_with_totals(resolved_flow_after_view, sector_names, sector_names, "Resolved Flow Using Updated Technology (FD & VA Inclusive)")
+    print_va_matrix_with_totals(va_matrix_after_new, value_added_types, sector_names, "Resolved Value Added Matrix AFTER Technological Change")
     print("Value Added (X - A*X):", value_added_after)
     print("Check: Output == Intermediate Inputs + Value Added:", np.allclose(output_after, intermediate_inputs_after + value_added_after))
     print("Check: Output - Intermediate Inputs == Final Demand:", np.allclose(output_after - intermediate_inputs_after, final_demand))
 
     # Show absolute and relative change in resolved flows (moved here for correct order)
-    resolved_flow_before = leontief_inv_before @ final_demand
-    resolved_flow_after = leontief_inv_after @ final_demand
+    print(f'\n{"-"*100}')
+    print("BEFORE & AFTER TECHNOLOGICAL CHANGE COMPARISON")
+    print(f'{"-"*100}')
+
+    #! resolved_flow_before = leontief_inv_before @ final_demand
+    #! resolved_flow_after = leontief_inv_after @ final_demand
     resolved_flow_change_abs = resolved_flow_after - resolved_flow_before
     with np.errstate(divide='ignore', invalid='ignore'):
         resolved_flow_change_rel = np.where(resolved_flow_before != 0, (resolved_flow_after - resolved_flow_before) / resolved_flow_before * 100, 0)
@@ -296,8 +314,6 @@ def demonstrate_technological_change_random(final_demand: np.ndarray, target_pro
 
     print("-"*100)
     # Show change in value added matrix with headings and totals
-    print_va_matrix_with_totals(va_matrix_before_new, value_added_types, sector_names, "Value Added Matrix BEFORE Technological Change")
-    print_va_matrix_with_totals(va_matrix_after_new, value_added_types, sector_names, "Value Added Matrix AFTER Technological Change")
     print_va_matrix_with_totals(va_matrix_after_new - va_matrix_before_new, value_added_types, sector_names, "Change in Value Added Matrix (Absolute)")
     with np.errstate(divide='ignore', invalid='ignore'):
         percent_change = np.where(va_matrix_before_new != 0, (va_matrix_after_new - va_matrix_before_new) / va_matrix_before_new * 100, 0)
