@@ -1,6 +1,6 @@
-from Input_Output.util.Evaluators import *
-from Input_Output.models.entities.Investment import *
-from Input_Output.demos.util.Setup_Data import test_create_indice_investment, test_create_indice_investment_random
+from Input_Output_Model.util.Evaluators import *
+from Input_Output_Model.models.entities.Investment import *
+from Input_Output_Model.demos.util.Setup_Data import test_create_indice_investment, test_create_indice_investment_random
 import random
 import faker
 import shutil
@@ -172,7 +172,7 @@ def demonstrate_demand_shock_db(final_demand: np.ndarray, shock_vector: list):
     print("Difference (Percentage):", (new_output - output) / output * 100)
     return new_output
 
-def demonstrate_technological_change_random(final_demand: np.ndarray, target_production_tech_change: Optional[Investment] = None):
+def evaluate_technological_change(final_demand: np.ndarray, target_production_tech_change: Optional[Investment] = None):
     def print_vector_with_labels(vector, labels, title):
         df = pd.DataFrame(vector.reshape(-1, 1), index=labels, columns=[title])
         print(f"\n{title}:\n", df)
@@ -340,7 +340,7 @@ def demonstrate_technological_change(final_demand: np.ndarray, target_production
     # Prefer the first for ease of analysis
     target_production_tech_change = sector_names[0] if target_production_tech_change is None else target_production_tech_change # pyright: ignore[reportAssignmentType]
     investment = test_create_indice_investment(produce_isic=target_production_tech_change,improvement_percentage=improvement_percentage,improvement_type=improvement_type,investment_cost=investment_cost) # pyright: ignore[reportArgumentType]
-    demonstrate_technological_change_random(final_demand=final_demand, target_production_tech_change=investment)
+    evaluate_technological_change(final_demand=final_demand, target_production_tech_change=investment)
 
 # TODO break down value added & final demand
 

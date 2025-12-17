@@ -28,6 +28,7 @@ class Production(Base):
     production_inputs = Column(JSON)  # Inputs required for production in JSON format
     production_added_values = Column(JSON)  # value added components in JSON format
     production_rate = Column(Integer)  # Rate of production
+    production_quantity = Column(Integer)  # Quantity produced
     production_material_efficiency = Column(Integer)  # Efficiency of the production method
     production_labour_efficiency = Column(Integer)  # Labour efficiency of the production method
     production_energy_efficiency = Column(Integer)  # Energy efficiency of the production

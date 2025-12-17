@@ -23,17 +23,16 @@ class GoodIndice(Base):
     # Index fields
     production_inputs = Column(JSON)  # Inputs required for production in JSON format
     production_added_values = Column(JSON)  # Value added for the good
-    total_inputs_cost = Column(Integer, nullable=True)  # Total input price used in production
-    total_value_added = Column(Integer, nullable=True)  # Total value added by the production method
-    price = Column(Integer, nullable=True)  # Price of the good
-    price_history = Column(String)  # Historical price data in JSON format
-    quantity = Column(Integer, nullable=False)  # Quantity of the good
+    total_inputs_cost = Column(JSON, nullable=True)  # Total input price used in production
+    total_value_added = Column(JSON, nullable=True)  # Total value added by the production method
+    price = Column(JSON, nullable=True)  # Price of the good
+    price_history = Column(JSON, nullable=True)  # Historical price data in JSON format
 
     def __repr__(self) -> str:
         return f"<GoodIndice(id={self.id}, name='{self.name}', id_number={self.id_number}, isic='{self.isic}', price={self.price}, production_added_values={self.production_added_values})>"
 
     def __str__(self) -> str:
-        return f"GoodIndice(name='{self.name}', id_number={self.id_number}, isic={self.isic}, price={self.price}, quantity={self.quantity}, production_added_values={self.production_added_values})"
+        return f"GoodIndice(name='{self.name}', id_number={self.id_number}, isic={self.isic}, price={self.price}, production_added_values={self.production_added_values})"
 
 class GoodsIndiceDatabase:
     """Database manager for Good Indices with proper session handling."""
@@ -59,7 +58,7 @@ class GoodsIndiceDatabase:
         finally:
             session.close()  # Ensure the session is closed after use
 
-    def add_good_indice(self, name: str, id_number: int, isic: str, quantity: int):
+    def add_good_indice(self, name: str, id_number: int, isic: str):
         """Add a new good indice to the database with error handling."""
         try:
             with self.get_session() as session:
@@ -67,7 +66,6 @@ class GoodsIndiceDatabase:
                     name=name,
                     id_number=id_number,
                     isic=isic,
-                    quantity=quantity,
                 )
                 session.add(good_indice)
                 session.flush()
