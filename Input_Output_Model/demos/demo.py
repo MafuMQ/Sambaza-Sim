@@ -6,6 +6,7 @@ import numpy as np
 import logging
 from Input_Output_Model.models.entities.SupplyCurve import SupplyCurveDatabase
 from Input_Output_Model.demos.util.Setup_Data import setup_random_sample_data
+
 from Input_Output_Model.models.table.solver import DynamicEquilibriumSolver 
 from Input_Output_Model.util.Evaluators import build_io_matrix  # The "Direct Matrix Builder" function
 
@@ -69,9 +70,9 @@ def run_economic_simulation(target_isic: str, demand_increase: float):
         if good.isic in isic_map:
             # We assert 'good.price' stores the List of Dicts: [{'cap': 10, 'price': 5}, ...]
             tiers = good.price
-            if good.id_number == 9999:  # pyright: ignore[reportGeneralTypeIssues] # Foreign Exchange special case
+            if good.id_number == 9999:  # Foreign Exchange special case
                 continue
-            if not tiers: # pyright: ignore[reportGeneralTypeIssues]
+            if not tiers:
                 raise ValueError(f"SupplyCurve with ISIC {good.isic} has no price data!")
                 logger.warning(f"Sector {good.isic} has no price tiers! Using defaults.")
                 # Fallback to a single tier if data is missing (prevents crash)
@@ -107,7 +108,7 @@ def run_economic_simulation(target_isic: str, demand_increase: float):
     final_demand = np.zeros(len(isic_map))
     
     # Apply the specific demand shock user requested
-    idx = isic_map[target_isic] # pyright: ignore[reportArgumentType]
+    idx = isic_map[target_isic]
     final_demand[idx] = demand_increase
     print(f"\n[OK] Solver initialized")
     print(f"\nDemand Shock Configuration:")
@@ -150,7 +151,7 @@ def run_economic_simulation(target_isic: str, demand_increase: float):
             revenue = qty * price
             total_output += qty
             total_revenue += revenue
-            marker = " <-- TARGET" if isic == target_isic else "" # pyright: ignore[reportGeneralTypeIssues]
+            marker = " <-- TARGET" if isic == target_isic else ""
             print(f"[{idx}] {isic[:17]:<17} {qty:>10.2f}     ${price:>10.2f}     ${revenue:>12.2f}{marker}")
         print("-" * 70)
         print(f"{'TOTAL':<20} {total_output:>10.2f}                   ${total_revenue:>12.2f}")
@@ -159,7 +160,7 @@ def run_economic_simulation(target_isic: str, demand_increase: float):
         print("\n" + "=" * 80)
         print("--- TARGET SECTOR DETAILED ANALYSIS ---")
         print("=" * 80)
-        target_idx = isic_map[target_isic] # pyright: ignore[reportArgumentType]
+        target_idx = isic_map[target_isic]
         final_price = result['prices'][target_idx]
         final_qty = result['output'][target_idx]
         
@@ -236,13 +237,13 @@ def run_economic_simulation(target_isic: str, demand_increase: float):
                 
                 # Show breakdown of input costs if helpful
                 if A_monetary_final is not None:
-                    significant_inputs = monetary_inputs > 0.01 # pyright: ignore[reportPossiblyUnboundVariable]
+                    significant_inputs = monetary_inputs > 0.01
                     if np.any(significant_inputs):
                         print(f"    Input cost breakdown:")
                         for input_idx in range(len(isic_map)):
-                            if significant_inputs[input_idx]: # pyright: ignore[reportIndexIssue]
+                            if significant_inputs[input_idx]:
                                 input_isic = [k for k, v in isic_map.items() if v == input_idx][0]
-                                print(f"      - {input_isic[:15]:<15}: ${monetary_inputs[input_idx]:8.2f}") # pyright: ignore[reportPossiblyUnboundVariable]
+                                print(f"      - {input_isic[:15]:<15}: ${monetary_inputs[input_idx]:8.2f}")
                 print()
         
         if all_balanced:
@@ -283,11 +284,11 @@ if __name__ == "__main__":
     
     if goods:
         # Find a non-foreign-exchange good
-        domestic_goods = [g for g in goods if g.id_number != 9999] # pyright: ignore[reportGeneralTypeIssues]
+        domestic_goods = [g for g in goods if g.id_number != 9999]
         if domestic_goods:
             target_good = domestic_goods[0]
             print(f"Running simulation for: {target_good.name} (ISIC: {target_good.isic})")
-            run_economic_simulation(target_isic=target_good.isic, demand_increase=100.0) # pyright: ignore[reportArgumentType]
+            run_economic_simulation(target_isic=target_good.isic, demand_increase=100.0)
         else:
             print("No domestic goods found in database!")
     else:

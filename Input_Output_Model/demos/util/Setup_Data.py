@@ -25,7 +25,7 @@ def create_foreign_exchange_good():
     # Check if it already exists
     existing_goods = gdb.get_all_goods()
     for good in existing_goods:
-        if good.isic == FOREIGN_EXCHANGE_ISIC: # pyright: ignore[reportGeneralTypeIssues]
+        if good.isic == FOREIGN_EXCHANGE_ISIC:
             logger.info(f"Foreign Exchange good already exists")
             return
     
@@ -125,7 +125,7 @@ def test_production_inputs():
     existing_goods = gdb.get_all_goods()
     
     # Exclude Foreign Exchange from being used as a production input for domestic production
-    existing_goods_isic = [good.isic for good in existing_goods if good.isic != FOREIGN_EXCHANGE_ISIC] # pyright: ignore[reportGeneralTypeIssues]
+    existing_goods_isic = [good.isic for good in existing_goods if good.isic != FOREIGN_EXCHANGE_ISIC]
     
     value_added_types = ["wages","surplus","taxes","mixed_income"]
     productions = pdb.get_all_productions()
@@ -138,7 +138,7 @@ def test_production_inputs():
         if production.name != "IMPORT":  # pyright: ignore[reportGeneralTypeIssues] # Skip IMPORT productions 
             # Create realistic inputs: use 2-4 random goods (not all goods, and not the good itself)
             # Generate MONETARY costs: dollar value of each input needed per production run
-            available_inputs = [isic for isic in existing_goods_isic if isic != production.isic] # pyright: ignore[reportGeneralTypeIssues]
+            available_inputs = [isic for isic in existing_goods_isic if isic != production.isic]
             num_inputs = min(fake.random_int(min=2, max=4), len(available_inputs))
             selected_inputs = random.sample(available_inputs, num_inputs) if available_inputs else []
             
