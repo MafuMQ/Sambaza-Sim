@@ -4,14 +4,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 class DynamicEquilibriumSolver:
-    def __init__(self, A_phys, isic_map, supply_data):
+    def __init__(self, A_mon, isic_map, supply_data):
         """
-        :param A_phys: The Physical Matrix (Inputs per Unit Output)
+        :param A_mon: The Monetary Coefficient Matrix (dollars of input per dollar of output)
         :param isic_map: Dict mapping {ISIC_String: Matrix_Index_Int}
         :param supply_data: Dict mapping {ISIC_String: Tier_List} 
                             (The JSON structure you stored)
         """
-        self.A_phys = A_phys
+        self.A_mon = A_mon
         self.isic_map = isic_map
         self.n = len(isic_map)
         
@@ -82,25 +82,18 @@ class DynamicEquilibriumSolver:
 
     def update_value_matrix(self, current_prices):
         """
-        Step 2: Convert Physical Matrix to Monetary Matrix.
-        A_monetary[i,j] = (A_phys[i,j] * P_i) / P_j
-        = dollars of input i needed per dollar of output j
+        Step 2: Return the Monetary Matrix.
         
-        Where:
-        - A_phys[i,j] = physical units of input i per physical unit of output j  
-        - P_i = price of input i ($/unit)
-        - P_j = price of output j ($/unit)
+        The base matrix A_mon already contains monetary coefficients from the database
+        calculated at base prices. In a proper dynamic model, we would adjust these
+        for price changes, but for now we use the base coefficients directly.
+        
+        The monetary matrix represents dollar relationships that are relatively stable.
+        Price changes primarily affect quantities demanded and supplied.
         """
-        # Avoid division by zero
-        P_out = np.where(current_prices == 0, 1e-9, current_prices)
-        
-        # Numerator: value of inputs (A_phys * input prices)
-        value_inputs = self.A_phys * current_prices[:, None]
-        
-        # Denominator: output prices (broadcast across rows)
-        A_monetary = value_inputs / P_out[None, :]
-        
-        return A_monetary
+        # The monetary matrix is already correct - it represents dollar relationships
+        # Price changes affect final demand and quantities, not the technical coefficients
+        return self.A_mon.copy()
 
     def solve(self, final_demand, max_iter=50, tol=1e-3, verbose=True):
         """
@@ -128,7 +121,7 @@ class DynamicEquilibriumSolver:
                 print(f"Iteration {iteration + 1}:")
                 print(f"  Prices: {np.round(current_prices, 2)}")
             
-            # 2. Update Matrix based on new Prices
+            # 2. Use the Monetary Matrix (already in correct form)
             A_monetary = self.update_value_matrix(current_prices)
             
             if verbose and iteration < 3:  # Show matrix for first few iterations

@@ -1,7 +1,7 @@
 import logging
 from typing import List, Dict
 from Input_Output_Model.models.entities.Good import GoodsDatabase
-from Input_Output_Model.models.entities.Good_Indice import GoodsIndiceDatabase
+from Input_Output_Model.models.entities.SupplyCurve import SupplyCurveDatabase
 from Input_Output_Model.models.entities.Production import *
 import sympy as sp
 import typing as t
@@ -53,89 +53,29 @@ def evaluate_good_isic(isic: str) -> dict:
 
 def evaluate_productions_price():
     """
-    Calculate production prices iteratively based on actual input costs.
+    Calculate production prices from monetary input costs and value added.
     
-    This ensures that prices reflect the true cost of production:
-    Price = (Sum of input quantities * input prices) + Value Added
+    Database stores MONETARY costs in production_inputs (e.g., $45 worth of steel, $20 worth of coal).
+    This function simply sums them:
     
-    Uses iterative refinement since prices depend on each other.
+    Total Input Cost = Sum(input_cost_i) for each input
+    Total Price = Total Input Cost + Value Added
+    
+    No iteration needed since inputs are already in monetary terms.
     """
     ptdb = ProductionsDatabase()
-    gidb = GoodsIndiceDatabase()
     productions = ptdb.get_all_productions()
     
-    # Build a map from ISIC to current price estimate
-    # Start with initial estimates based on physical quantities only
-    isic_to_price = {}
+    logger.info("Calculating production prices from monetary input costs...")
     
-    # First pass: Set initial prices for all goods (sum of physical inputs + VA)
-    logger.info("Initial price estimation (physical quantities + VA)...")
     for production in productions:
-        total_inputs_qty = sum([quantity for quantity in production.production_inputs.values()])
-        total_value_added = sum([quantity for quantity in production.production_added_values.values()])
+        # Sum monetary input costs (already in dollars)
+        input_cost = sum([float(cost) for cost in production.production_inputs.values()])
         
-        # Initial price estimate ignoring input prices
-        initial_price = total_inputs_qty + total_value_added
+        # Sum monetary value added components (already in dollars)
+        total_va = sum([float(va) for va in production.production_added_values.values()])
         
-        if production.isic not in isic_to_price or initial_price < isic_to_price[production.isic]:
-            isic_to_price[production.isic] = max(1.0, initial_price)  # Minimum price of 1
-    
-    # Iteratively refine prices based on input costs
-    max_iterations = 10
-    convergence_threshold = 0.01  # 1% change
-    
-    for iteration in range(max_iterations):
-        max_change = 0.0
-        new_prices = {}
-        
-        logger.info(f"Price iteration {iteration + 1}...")
-        
-        for production in productions:
-            # Calculate true input cost using current price estimates
-            input_cost = 0.0
-            for input_isic, input_qty in production.production_inputs.items():
-                input_price = isic_to_price.get(input_isic, 1.0)
-                input_cost += float(input_qty) * input_price
-            
-            # Calculate total value added
-            total_va = sum([quantity for quantity in production.production_added_values.values()])
-            
-            # Production price = input costs + value added
-            calculated_price = input_cost + total_va
-            
-            # Track the cheapest production for each good
-            if production.isic not in new_prices or calculated_price < new_prices[production.isic]:
-                new_prices[production.isic] = max(1.0, calculated_price)
-        
-        # Check convergence
-        for isic in new_prices:
-            old_price = isic_to_price.get(isic, 0.0)
-            new_price = new_prices[isic]
-            if old_price > 0:
-                change = abs(new_price - old_price) / old_price
-                max_change = max(max_change, change)
-        
-        isic_to_price = new_prices
-        
-        logger.info(f"  Max price change: {max_change * 100:.2f}%")
-        
-        if max_change < convergence_threshold:
-            logger.info(f"  Prices converged after {iteration + 1} iterations")
-            break
-    
-    # Final pass: Update all productions with calculated prices
-    logger.info("Updating production prices in database...")
-    for production in productions:
-        # Calculate final input cost
-        input_cost = 0.0
-        for input_isic, input_qty in production.production_inputs.items():
-            input_price = isic_to_price.get(input_isic, 1.0)
-            input_cost += float(input_qty) * input_price
-        
-        # Calculate total value added
-        total_va = sum([quantity for quantity in production.production_added_values.values()])
-        
-        # Final price
+        # Production price = sum of input costs + value added
         final_price = input_cost + total_va
         
         # Update database
@@ -146,35 +86,38 @@ def evaluate_productions_price():
             price=final_price
         )  # pyright: ignore[reportArgumentType]
     
-    logger.info(f"Price calculation complete. Final ISIC prices: {isic_to_price}")
+    logger.info(f"Price calculation complete for {len(productions)} productions.")
 
-def evaluate_indicies(with_functions: bool = False):
+def build_supply_curves(with_functions: bool = False):
+    """Build supply curves for all goods from production methods."""
     if with_functions:
-        evaluate_indicies_with_functions()
+        build_supply_curves_with_tiers()
     else:
-        evaluate_indicies_without_functions()
+        build_supply_curves_simple()
 
-def evaluate_indicies_without_functions():
-    gidb = GoodsIndiceDatabase()
+def build_supply_curves_simple():
+    """Build simple supply curves using cheapest production for each good."""
+    scdb = SupplyCurveDatabase()
     ptdb = ProductionsDatabase()
-    indices = gidb.get_all_good_indices()
+    supply_curves = scdb.get_all_supply_curves()
     
-    for indice in indices:
-        productions:List[Production] = ptdb.get_all_productions_by_good(int(indice.id_number))  # pyright: ignore[reportArgumentType]
+    for curve in supply_curves:
+        productions: List[Production] = ptdb.get_all_productions_by_good(int(curve.id_number))  # pyright: ignore[reportArgumentType]
 
-        cheapest_production = min(productions, key=lambda p: float(p.price)) # type: ignore
+        cheapest_production = min(productions, key=lambda p: float(p.price))  # type: ignore
         production_added_values = cheapest_production.production_added_values
-        gidb.update_good_indice(int(indice.id_number), # pyright: ignore[reportArgumentType]
-                                production_inputs=cheapest_production.production_inputs, 
-                                production_added_values=production_added_values,
-                                total_inputs_cost=cheapest_production.total_inputs_cost, 
-                                total_value_added=cheapest_production.total_value_added, 
-                                price=cheapest_production.price)  
+        scdb.update_supply_curve(
+            int(curve.id_number),  # pyright: ignore[reportArgumentType]
+            production_inputs=cheapest_production.production_inputs,
+            production_added_values=production_added_values,
+            total_inputs_cost=cheapest_production.total_inputs_cost,
+            total_value_added=cheapest_production.total_value_added,
+            price=cheapest_production.price
+        )  
 
-# TODO: Complete this function
-def handle_evaluate_indicie_function(functionDicts: List[Dict]) -> Dict:
+def build_tiered_supply_curve(functionDicts: List[Dict]) -> Dict:
     """
-    Transforms a list of production dictionaries into tiered supply function profiles
+    Transforms a list of production dictionaries into tiered supply curve profiles
     sorted by Merit Order (Cheapest Price First).
     
     Returns a dictionary where each key (price, total_inputs_cost, etc.) contains 
@@ -222,8 +165,8 @@ def handle_evaluate_indicie_function(functionDicts: List[Dict]) -> Dict:
         "total_value_added": {"tiers": value_added_tiers}
     }
 
-# Update this function to ensure it passes the data correctly
-def evaluate_indicie_function(productions: List[Production]) -> Dict:
+def build_supply_curve_from_productions(productions: List[Production]) -> Dict:
+    """Build tiered supply curve from a list of production methods."""
     functionDicts = []
     for production in productions:
         functionDict = {}
@@ -236,62 +179,72 @@ def evaluate_indicie_function(productions: List[Production]) -> Dict:
         
         functionDicts.append(functionDict)
 
-    return handle_evaluate_indicie_function(functionDicts)
+    return build_tiered_supply_curve(functionDicts)
 
-# TODO: Complete this function
-def evaluate_indicies_with_functions():
-    gidb = GoodsIndiceDatabase()
+def build_supply_curves_with_tiers():
+    """Build tiered supply curves for all goods from their production methods."""
+    scdb = SupplyCurveDatabase()
     ptdb = ProductionsDatabase()
-    indices = gidb.get_all_good_indices()
+    supply_curves = scdb.get_all_supply_curves()
     
-    for indice in indices:
-        productions:List[Production] = ptdb.get_all_productions_by_good(int(indice.id_number))  # pyright: ignore[reportArgumentType]
+    for curve in supply_curves:
+        productions: List[Production] = ptdb.get_all_productions_by_good(int(curve.id_number))  # pyright: ignore[reportArgumentType]
 
-        production_function = evaluate_indicie_function(productions) # type: ignore
-        gidb.update_good_indice(int(indice.id_number), # pyright: ignore[reportArgumentType]
-                                total_inputs_cost=production_function["total_inputs_cost"]["tiers"], 
-                                total_value_added=production_function["total_value_added"]["tiers"], 
-                                price=production_function["price"]["tiers"])
+        supply_curve_data = build_supply_curve_from_productions(productions)  # type: ignore
+        scdb.update_supply_curve(
+            int(curve.id_number),  # pyright: ignore[reportArgumentType]
+            total_inputs_cost=supply_curve_data["total_inputs_cost"]["tiers"],
+            total_value_added=supply_curve_data["total_value_added"]["tiers"],
+            price=supply_curve_data["price"]["tiers"]
+        )
         
 # --- Input-Output Matrix Functions ---
 import numpy as np
 
-def evaluate_indicies_production_inputs_to_matrix(demoDB=False):
+def build_io_matrix(demoDB=False):
     """
-    New Entry Point: Builds the Physical Input-Output Matrix directly from DB.
+    Builds the MONETARY Input-Output Coefficient Matrix from DB.
+    
+    Database stores MONETARY costs in production_inputs (e.g., $45 worth of steel).
+    These costs are not yet normalized per dollar of output.
+    
+    This function builds monetary technical coefficients:
+    A_mon[i,j] = dollars of input i per dollar of output j
+    
     Returns:
-        A_phys (np.ndarray): The physical technical coefficients (Input/Output).
-        VA_phys (np.ndarray): The physical value added (e.g. Labor/Capital per unit).
+        A_mon (np.ndarray): Monetary technical coefficients.
+                           A[i,j] = $ of input i per $ of output j
+        VA_mon (np.ndarray): Monetary value added per $ of output
         isic_map (dict): Mapping from ISIC string -> Matrix Index.
     """
     # 1. Initialize Databases
     if demoDB:
-        gidb = GoodsIndiceDatabase(database_url="sqlite:///dataDEMO.db")
+        scdb = SupplyCurveDatabase(database_url="sqlite:///dataDEMO.db")
         ptdb = ProductionsDatabase(database_url="sqlite:///dataDEMO.db")
     else:
-        gidb = GoodsIndiceDatabase()
+        scdb = SupplyCurveDatabase()
         ptdb = ProductionsDatabase()
 
     # 2. Build the Index Map (ISIC -> Row/Col ID)
     # We need a fixed order for the matrix.
-    indices = gidb.get_all_good_indices()
+    supply_curves = scdb.get_all_supply_curves()
     
     # Sort to ensure deterministic matrix order (e.g., by ID or ISIC)
-    sorted_indices = sorted(indices, key=lambda x: x.isic) 
+    sorted_curves = sorted(supply_curves, key=lambda x: x.isic) 
     
-    n = len(sorted_indices)
-    isic_map = {idx.isic: i for i, idx in enumerate(sorted_indices)}
+    n = len(sorted_curves)
+    isic_map = {curve.isic: i for i, curve in enumerate(sorted_curves)}
     
-    # 3. Initialize the Physical Matrix (A_phys)
+    # 3. Initialize the Monetary Coefficient Matrix (A_mon)
     # Rows = Inputs, Columns = Outputs
-    A_phys = np.zeros((n, n))
+    # A[i,j] = dollars of input i per dollar of output j
+    A_mon = np.zeros((n, n))
     
-    # Initialize Value Added Vector (One row for Total VA, or multiple if you track them)
-    # For now, let's assume one aggregate 'Total Value Added' row
-    VA_phys = np.zeros(n) 
+    # Initialize Value Added Vector (dollars of VA per dollar of output)
+    VA_mon = np.zeros(n) 
 
     # 4. Fill Matrix from Production Recipes
-    for output_good in sorted_indices:
+    for output_good in sorted_curves:
         col_idx = isic_map[output_good.isic]
         
         # Fetch production method for this good
@@ -308,34 +261,40 @@ def evaluate_indicies_production_inputs_to_matrix(demoDB=False):
             logger.info(f"Using IMPORT production for {output_good.name} (ISIC: {output_good.isic})") 
 
         # --- THE CORE MATH ---
-        # We need coefficients: How much input is needed for 1.0 unit of output?
-        total_qty = float(production.production_quantity)
-        if total_qty <= 0: total_qty = 1.0 # Prevent division by zero
+        # production_inputs already stores MONETARY costs (e.g., $45 worth of steel)
+        # We need to normalize to: A_mon[i,j] = $ of input i per $ of output j
+        #
+        # Strategy: Divide each monetary input cost by total output price
         
-        # A. Fill Intermediate Inputs (The Matrix)
-        for input_isic, input_qty in production.production_inputs.items():
+        output_price = float(production.price) if production.price else 1.0
+        if output_price <= 0: output_price = 1.0
+        
+        # A. Fill Intermediate Input Coefficients (monetary)
+        # For each input: input_cost / output_price
+        for input_isic, input_cost_monetary in production.production_inputs.items():
             if input_isic in isic_map:
                 row_idx = isic_map[input_isic]
                 
-                # Coefficient = Input Quantity / Total Output Quantity
-                coeff = float(input_qty) / total_qty
-                A_phys[row_idx, col_idx] = coeff
+                # Monetary coefficient: $ of input / $ of output
+                coeff = float(input_cost_monetary) / output_price
+                A_mon[row_idx, col_idx] = coeff
             else:
                 logger.warning(f"Input ISIC {input_isic} not found in Goods Index.")
 
-        # B. Fill Value Added (The Vector)
-        # We handle Value Added as a physical ratio too (e.g. $VA per unit output)
-        total_va = float(production.total_value_added)
-        VA_phys[col_idx] = total_va / total_qty
+        # B. Fill Value Added Coefficient (monetary)
+        # total_value_added is already in monetary terms
+        total_va_monetary = float(production.total_value_added) if production.total_value_added else 0.0
+        VA_mon[col_idx] = total_va_monetary / output_price
 
-    logger.info(f"Generated Physical Matrix with shape {A_phys.shape}")
-    print("\nPhysical Input-Output Matrix A (Inputs/Outputs):")
-    print(A_phys)
-    print("\nPhysical Value Added Vector VA (per unit output):")
-    print(VA_phys)
+    logger.info(f"Generated Monetary Coefficient Matrix with shape {A_mon.shape}")
+    print("\nMonetary Input-Output Coefficient Matrix A:")
+    print("(Each element = dollars of input per dollar of output)")
+    print(A_mon)
+    print("\nMonetary Value Added Coefficients:")
+    print(VA_mon)
     print("\nISIC to Matrix Index Map:")
     print(isic_map)
-    return A_phys, VA_phys, isic_map
+    return A_mon, VA_mon, isic_map
 
 # --- Economic Analysis Functions ---
 
