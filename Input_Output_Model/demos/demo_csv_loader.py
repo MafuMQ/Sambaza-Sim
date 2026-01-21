@@ -11,20 +11,12 @@ logger = logging.getLogger(__name__)
 
 # --- EXECUTE ---
 if __name__ == "__main__":
-    # First, setup the database with sample data
-    print("Setting up sample data...")
-    
-    # To load from CSV files, uncomment the following line and comment the random data line:
-    setup_data(source="data/ex1", overwrite_existing_data=True)  # Load from CSV
-    
-    # To generate random sample data, use:
-    # setup_data(overwrite_existing_data=True)  # Generate random data
-    
+    # Load data from CSV files in data/ex1 directory
+    print("Loading data from CSV files...")
+    setup_data(source="data/ex1", overwrite_existing_data=True)
     print("\nData setup complete. Running simulation...\n")
     
-    # Use a domestic good from the current database
-    # The setup creates goods with ISIC codes in format A####_###_#####
-    # We'll use the first good created
+    # Use a domestic good from the loaded database
     from Input_Output_Model.models.entities.Good import GoodsDatabase
     gdb = GoodsDatabase()
     goods = gdb.get_all_goods()

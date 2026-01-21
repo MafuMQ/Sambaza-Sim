@@ -7,6 +7,8 @@ from Input_Output_Model.models.entities.Production import ProductionsDatabase
 import random
 from pathlib import Path
 import time
+import csv
+import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,8 +74,8 @@ def add_import_production(good_name, produce, isic):
     )
     logger.info(f"Added IMPORT production for {good_name} with id_number={import_id}")
 
-def test_good(n=5, pn=5):
-    """Create test goods with domestic productions and import options."""
+def create_sample_goods_with_imports(n=5, pn=5):
+    """Create sample goods with domestic production methods and import options."""
     gdb = GoodsDatabase()
     scdb = SupplyCurveDatabase()
     
@@ -86,10 +88,10 @@ def test_good(n=5, pn=5):
         logger.info(f"Adding IMPORT production for good: {name} (id_number={id_number}, isic={isic})")
         add_import_production(name, id_number, isic)
         scdb.add_supply_curve(name=name, id_number=id_number, isic=isic)  # each new good has a supply curve
-        test_production_with_args(produce=id_number, isic=isic, n=pn)  # add numbered random local productions for the good
+        create_domestic_production_methods(produce=id_number, isic=isic, n=pn)  # add numbered random local productions for the good
 
-def test_production_with_args(produce, isic, n=5):
-    """Create test production methods for a given good."""
+def create_domestic_production_methods(produce, isic, n=5):
+    """Create domestic production methods for a given good."""
     pdb = ProductionsDatabase()
     
     for _ in range(n):
@@ -119,7 +121,8 @@ def test_production_with_args(produce, isic, n=5):
             price=price
         )
 
-def test_production_inputs():
+def assign_production_inputs():
+    """Assign realistic production inputs and value-added components to all domestic productions."""
     pdb = ProductionsDatabase()
     gdb = GoodsDatabase()
     existing_goods = gdb.get_all_goods()
@@ -169,32 +172,130 @@ def handle_existing_db_files(do_what="remove", remove_what=["data.db", "dataDEMO
             elif do_what == "warn":
                 logging.warning(f"Database file already exists: {target}. Setup may fail if data conflicts.")
             elif do_what == "ignore":
-                logging.info(f"Database file exists, but ignoring as per configuration: {target}")
-                return False
-            # else do nothing
+                logging.info(f"Database file already exists and will NOT be removed: {target}")
     return True
 
-def setup_random_sample_data(ignore_if_exists=False):
-    """Set up random sample data for testing the Input-Output model."""
-    do_what = "remove"
-    if ignore_if_exists:
-        do_what = "ignore"
-    if handle_existing_db_files(do_what=do_what, remove_what=["data.db", "dataDEMO.db"]):
-        print("Setting up random sample data...")
-        time.sleep(1)  # Sleep
-        print("Creating Foreign Exchange good for imports:")
-        create_foreign_exchange_good()
-        print("\nTesting Good:")
-        test_good(5, 4)
-        print("\nTesting Production inputs:")
-        test_production_inputs()
-        print("\nTesting completed.")
-        print("\nEvaluating ISIC codes:")
+def evaluate_simple_data():
+        print("\n[1/4] Validating ISIC codes...")
         evaluate_goods_isic()
-        print("Evaluation of ISIC codes completed.\nEvaluating Production Prices:")
+        
+        print("\n[2/4] Validating production prices...")
         evaluate_productions_price()
-        print("\nEvaluation of Production prices completed.\nBuilding Supply Curves:")
+        
+        print("\n[3/4] Building supply curves...")
         build_supply_curves(with_functions=True)
-        print("Supply curves built.\nBuilding Input-Output Matrix:")
+        
+        print("\n[4/4] Building Input-Output matrix...")
         build_io_matrix()
-        print("Input-Output matrix built successfully.")
+
+def setup_random_sample_data(overwrite=True):
+    """Set up a random sample Input-Output model database."""
+    print("="*70)
+    print("Setting up sample Input-Output model database...")
+    print("="*70)
+    time.sleep(1)  # Sleep
+    
+    print("\n[1/4] Creating Foreign Exchange good for imports...")
+    create_foreign_exchange_good()
+    
+    print("\n[2/4] Creating sample goods with domestic and import production options...")
+    create_sample_goods_with_imports(5, 4)
+    
+    print("\n[3/4] Assigning production inputs and value-added components...")
+    assign_production_inputs()
+    
+    print("\n[4/4] Evaluating the sample data...")
+    evaluate_simple_data()
+
+    print("\n" + "="*70)
+    print("Database setup completed successfully!")
+    print("="*70)
+
+def load_csv_data(csv_path):
+    """Load goods and productions data from CSV files in the specified path."""
+    print("="*70)
+    print(f"Loading data from CSV files at: {csv_path}")
+    print("="*70)
+    time.sleep(1)
+    
+    csv_path = Path(csv_path)
+    goods_csv = csv_path / "goods.csv"
+    productions_csv = csv_path / "productions.csv"
+    
+    # Validate CSV files exist
+    if not goods_csv.exists():
+        raise FileNotFoundError(f"Goods CSV file not found at: {goods_csv}")
+    if not productions_csv.exists():
+        raise FileNotFoundError(f"Productions CSV file not found at: {productions_csv}")
+    
+    gdb = GoodsDatabase()
+    scdb = SupplyCurveDatabase()
+    pdb = ProductionsDatabase()
+    
+    # Load goods
+    print("\n[1/3] Loading goods from CSV...")
+    goods_count = 0
+    with open(goods_csv, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            gdb.add_good(
+                name=row['name'],
+                descriptive_name=row['descriptive_name'],
+                id_number=int(row['id_number']),
+                isic=row['isic']
+            )
+            # Create supply curve for each good
+            scdb.add_supply_curve(
+                name=row['name'],
+                id_number=int(row['id_number']),
+                isic=row['isic']
+            )
+            goods_count += 1
+    logger.info(f"Loaded {goods_count} goods from CSV")
+    
+    # Load productions
+    print("\n[2/3] Loading productions from CSV...")
+    productions_count = 0
+    with open(productions_csv, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            # Parse JSON fields for production_inputs and production_added_values
+            production_inputs = json.loads(row['production_inputs']) if row['production_inputs'] else {}
+            production_added_values = json.loads(row['production_added_values']) if row['production_added_values'] else {}
+            
+            pdb.add_production(
+                name=row['name'],
+                id_number=int(row['id_number']),
+                isic=row['isic'],
+                producer=int(row['producer']),
+                produce=int(row['produce']),
+                produce_name=row['produce_name'],
+                production_inputs=production_inputs,
+                production_added_values=production_added_values,
+                production_rate=int(row['production_rate']) if row['production_rate'] else 0,
+                production_quantity=int(row['production_quantity']) if row['production_quantity'] else -1,
+                price=int(row['price']) if row['price'] else 0
+            )
+            productions_count += 1
+    logger.info(f"Loaded {productions_count} productions from CSV")
+    
+    # Evaluate the loaded data
+    print("\n[3/3] Evaluating loaded data...")
+    evaluate_simple_data()
+    
+    print("\n" + "="*70)
+    print(f"Successfully loaded {goods_count} goods and {productions_count} productions!")
+    print("="*70)
+
+def setup_data(source=None, overwrite_existing_data=False):
+    """Set up data from a specified source or create random sample data."""
+       
+    do_what = "remove"
+    if not overwrite_existing_data:
+        do_what = "ignore"
+    if handle_existing_db_files(do_what=do_what, remove_what=["data.db", "dataDEMO.db"]): #if files handled successfully
+        if source is None:
+            setup_random_sample_data(overwrite=overwrite_existing_data)
+        else:
+            logging.info(f"Loading data from source: {source}")
+            load_csv_data(source)

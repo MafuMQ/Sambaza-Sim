@@ -24,7 +24,7 @@ The app stores economic data in SQLite with three main entities:
 - `price`: Total cost = `total_inputs_cost + total_value_added` ($110 in example)
 - `production_quantity`: Maximum capacity this production method can achieve
 
-**GoodIndice** (aggregated supply curves per good):
+**GoodIndice/SupplyCurve** (aggregated supply curves per good):
 - `price`: JSON list of tiers `[{'cap': 100, 'price': 50}, {'cap': 200, 'price': 75}, ...]`
   - This represents a **merit-order supply curve**: cheapest 100 units cost $50/unit, next 200 units cost $75/unit, etc.
 - Built by sorting all Production methods for a good by price (cheapest first)
