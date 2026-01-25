@@ -15,10 +15,10 @@ if __name__ == "__main__":
     print("Setting up sample data...")
     
     # To load from CSV files, uncomment the following line and comment the random data line:
-    setup_data(source="data/ex1", overwrite_existing_data=True)  # Load from CSV
+    setup_data(source="data/ex2", overwrite_existing_data=True)  # Load from CSV
     
     # To generate random sample data, use:
-    # setup_data(overwrite_existing_data=True)  # Generate random data
+    # setup_data(overwrite_existing_data=True, for_custom_taxes=True)  # Generate random data
     
     print("\nData setup complete. Running simulation...\n")
     

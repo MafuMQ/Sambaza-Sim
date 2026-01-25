@@ -125,8 +125,8 @@ class DynamicEquilibriumSolver:
             A_monetary = self.update_value_matrix(current_prices)
             
             if verbose and iteration < 3:  # Show matrix for first few iterations
-                print(f"  A_monetary (first 3x3):")
-                print(f"  {np.round(A_monetary[:3, :3], 4)}")
+                print(f"  A_monetary:")
+                print(f"  {np.round(A_monetary, 4)}")
             
             # 3. Solve Leontief: X = (I - A)^-1 * F
             I = np.eye(self.n)

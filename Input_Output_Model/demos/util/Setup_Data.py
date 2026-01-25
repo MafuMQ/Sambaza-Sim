@@ -121,7 +121,15 @@ def create_domestic_production_methods(produce, isic, n=5):
             price=price
         )
 
-def assign_production_inputs():
+def handle_added_values():
+    # Implement logic to handle added values
+    minWages = fake.random_int(min=5, max=15)
+    bonusWages = fake.random_int(min=0, max=10)
+    wages = minWages + bonusWages
+    surplus = fake.random_int(min=5, max=40)
+    return {"minWages": minWages, "bonusWages": bonusWages, "wages": wages, "surplus": surplus}
+
+def assign_production_inputs(for_custom_taxes=False):
     """Assign realistic production inputs and value-added components to all domestic productions."""
     pdb = ProductionsDatabase()
     gdb = GoodsDatabase()
@@ -130,7 +138,10 @@ def assign_production_inputs():
     # Exclude Foreign Exchange from being used as a production input for domestic production
     existing_goods_isic = [good.isic for good in existing_goods if good.isic != FOREIGN_EXCHANGE_ISIC]
     
-    value_added_types = ["wages","surplus","taxes","mixed_income"]
+    if not for_custom_taxes:
+        value_added_types = ["wages","surplus","taxes","mixed_income"]
+    else:
+        value_added_types = ["minWages","bonusWages","wages","surplus"] # for reference, this will be ignored
     productions = pdb.get_all_productions()
     
     logger.info(f"Updating production inputs for {len(productions)} productions")
@@ -148,7 +159,10 @@ def assign_production_inputs():
             # Monetary input costs (dollar value of input materials needed)
             inputs = {isic: fake.random_int(min=1, max=50) for isic in selected_inputs}
             # Monetary value added components (dollar value of labor, capital, etc.)
-            added_values = {value_type: fake.random_int(min=1, max=20) for value_type in value_added_types}
+            if  not for_custom_taxes:
+                added_values = {value_type: fake.random_int(min=1, max=20) for value_type in value_added_types}
+            else:
+                added_values = handle_added_values()
             pdb.update_production(int(production.id), production_inputs=inputs, production_added_values=added_values)  # pyright: ignore[reportArgumentType]
             updated_count += 1
         else:
@@ -188,7 +202,7 @@ def evaluate_simple_data():
         print("\n[4/4] Building Input-Output matrix...")
         build_io_matrix()
 
-def setup_random_sample_data(overwrite=True):
+def setup_random_sample_data(overwrite=True, for_custom_taxes=False):
     """Set up a random sample Input-Output model database."""
     print("="*70)
     print("Setting up sample Input-Output model database...")
@@ -202,7 +216,7 @@ def setup_random_sample_data(overwrite=True):
     create_sample_goods_with_imports(5, 4)
     
     print("\n[3/4] Assigning production inputs and value-added components...")
-    assign_production_inputs()
+    assign_production_inputs(for_custom_taxes)
     
     print("\n[4/4] Evaluating the sample data...")
     evaluate_simple_data()
@@ -287,7 +301,7 @@ def load_csv_data(csv_path):
     print(f"Successfully loaded {goods_count} goods and {productions_count} productions!")
     print("="*70)
 
-def setup_data(source=None, overwrite_existing_data=False):
+def setup_data(source=None, overwrite_existing_data=False, for_custom_taxes=False):
     """Set up data from a specified source or create random sample data."""
        
     do_what = "remove"
@@ -295,7 +309,7 @@ def setup_data(source=None, overwrite_existing_data=False):
         do_what = "ignore"
     if handle_existing_db_files(do_what=do_what, remove_what=["data.db", "dataDEMO.db"]): #if files handled successfully
         if source is None:
-            setup_random_sample_data(overwrite=overwrite_existing_data)
+            setup_random_sample_data(overwrite=overwrite_existing_data, for_custom_taxes=for_custom_taxes)
         else:
             logging.info(f"Loading data from source: {source}")
             load_csv_data(source)
