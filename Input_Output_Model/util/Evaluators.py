@@ -201,7 +201,7 @@ def build_supply_curves_with_tiers():
 # --- Input-Output Matrix Functions ---
 import numpy as np
 
-def build_io_matrix(demoDB=False):
+def build_io_matrix(demoDB=False, loggingLevel=logging.INFO) -> t.Tuple[np.ndarray, np.ndarray, dict]:
     """
     Builds the MONETARY Input-Output Coefficient Matrix from DB.
     
@@ -217,6 +217,7 @@ def build_io_matrix(demoDB=False):
         VA_mon (np.ndarray): Monetary value added per $ of output
         isic_map (dict): Mapping from ISIC string -> Matrix Index.
     """
+    logger.setLevel(loggingLevel)
     # 1. Initialize Databases
     if demoDB:
         scdb = SupplyCurveDatabase(database_url="sqlite:///dataDEMO.db")

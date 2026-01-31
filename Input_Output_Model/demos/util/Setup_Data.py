@@ -301,9 +301,9 @@ def load_csv_data(csv_path):
     print(f"Successfully loaded {goods_count} goods and {productions_count} productions!")
     print("="*70)
 
-def setup_data(source=None, overwrite_existing_data=False, for_custom_taxes=False):
+def setup_data(source=None, overwrite_existing_data=False, for_custom_taxes=False, logging_level=logging.INFO):
     """Set up data from a specified source or create random sample data."""
-       
+    logging.getLogger().setLevel(logging_level)
     do_what = "remove"
     if not overwrite_existing_data:
         do_what = "ignore"
