@@ -78,6 +78,9 @@ def run_tax_policy_simulation(
     uniform_demand: float = None,
     total_demand: float = None,
     proportions: list = None,
+    consumption_proportions: list = None,
+    investment_proportions: list = None,
+    government_proportions: list = None,
     income_tax_rate_before: float = 0.0,
     income_tax_rate_after: float = 0.0,
     corporate_tax_rate_before: float = 0.0,
@@ -116,6 +119,20 @@ def run_tax_policy_simulation(
     total_demand + proportions : float, list
         Distribute total_demand across sectors according to proportions
         e.g., total_demand=1000, proportions=[0.3, 0.2, 0.2, 0.2, 0.1, 0.0]
+        NOTE: This is only used for initial demand. For circular flow iterations,
+        use consumption_proportions, investment_proportions, and government_proportions.
+    
+    consumption_proportions : list
+        How to distribute consumption (C) across sectors during circular flow iterations.
+        Must sum to 1.0. If not provided, falls back to consumption_distribution setting.
+    
+    investment_proportions : list
+        How to distribute investment (I) across sectors during circular flow iterations.
+        Must sum to 1.0. If not provided, falls back to consumption_distribution setting.
+    
+    government_proportions : list
+        How to distribute government spending (G) across sectors during circular flow iterations.
+        Must sum to 1.0. If not provided, falls back to consumption_distribution setting.
     
     TAX PARAMETERS:
     ---------------
@@ -402,45 +419,89 @@ def run_tax_policy_simulation(
             total_imports = 0.0
             
             # Distribute consumption across sectors
-            if consumption_distribution == "proportional" and initial_demand_proportions is not None:
+            if consumption_proportions is not None:
+                # Use explicit consumption proportions
+                c_props = np.array(consumption_proportions, dtype=float)
+                if len(c_props) != n_sectors:
+                    raise ValueError(f"consumption_proportions length {len(c_props)} does not match sectors {n_sectors}")
+                if not np.isclose(c_props.sum(), 1.0, atol=1e-6):
+                    raise ValueError(f"consumption_proportions must sum to 1.0, got {c_props.sum()}")
+                consumption_demand = c_props * total_consumption
+            elif consumption_distribution == "proportional" and initial_demand_proportions is not None:
                 # Use initial demand proportions
                 consumption_demand = initial_demand_proportions * total_consumption
-                investment_demand = initial_demand_proportions * total_investment
-                government_demand = initial_demand_proportions * total_government
             elif consumption_distribution == "uniform":
                 # Distribute equally across domestic sectors
                 per_sector_c = total_consumption / len(domestic_indices)
-                per_sector_i = total_investment / len(domestic_indices)
-                per_sector_g = total_government / len(domestic_indices)
                 consumption_demand = np.zeros(n_sectors)
-                investment_demand = np.zeros(n_sectors)
-                government_demand = np.zeros(n_sectors)
                 for i in domestic_indices:
                     consumption_demand[i] = per_sector_c
-                    investment_demand[i] = per_sector_i
-                    government_demand[i] = per_sector_g
             elif consumption_distribution == "manual" and proportions is not None:
                 # Use provided proportions
                 consumption_demand = np.array(proportions) * total_consumption
-                investment_demand = np.array(proportions) * total_investment
-                government_demand = np.array(proportions) * total_government
             else:
                 # Default: proportional
                 if initial_demand_proportions is not None:
                     consumption_demand = initial_demand_proportions * total_consumption
-                    investment_demand = initial_demand_proportions * total_investment
-                    government_demand = initial_demand_proportions * total_government
                 else:
                     # Fallback to uniform
                     per_sector_c = total_consumption / len(domestic_indices)
-                    per_sector_i = total_investment / len(domestic_indices)
-                    per_sector_g = total_government / len(domestic_indices)
                     consumption_demand = np.zeros(n_sectors)
-                    investment_demand = np.zeros(n_sectors)
-                    government_demand = np.zeros(n_sectors)
                     for i in domestic_indices:
                         consumption_demand[i] = per_sector_c
+            
+            # Distribute investment across sectors
+            if investment_proportions is not None:
+                # Use explicit investment proportions
+                i_props = np.array(investment_proportions, dtype=float)
+                if len(i_props) != n_sectors:
+                    raise ValueError(f"investment_proportions length {len(i_props)} does not match sectors {n_sectors}")
+                if not np.isclose(i_props.sum(), 1.0, atol=1e-6):
+                    raise ValueError(f"investment_proportions must sum to 1.0, got {i_props.sum()}")
+                investment_demand = i_props * total_investment
+            elif consumption_distribution == "proportional" and initial_demand_proportions is not None:
+                investment_demand = initial_demand_proportions * total_investment
+            elif consumption_distribution == "uniform":
+                per_sector_i = total_investment / len(domestic_indices)
+                investment_demand = np.zeros(n_sectors)
+                for i in domestic_indices:
+                    investment_demand[i] = per_sector_i
+            elif consumption_distribution == "manual" and proportions is not None:
+                investment_demand = np.array(proportions) * total_investment
+            else:
+                if initial_demand_proportions is not None:
+                    investment_demand = initial_demand_proportions * total_investment
+                else:
+                    per_sector_i = total_investment / len(domestic_indices)
+                    investment_demand = np.zeros(n_sectors)
+                    for i in domestic_indices:
                         investment_demand[i] = per_sector_i
+            
+            # Distribute government spending across sectors
+            if government_proportions is not None:
+                # Use explicit government proportions
+                g_props = np.array(government_proportions, dtype=float)
+                if len(g_props) != n_sectors:
+                    raise ValueError(f"government_proportions length {len(g_props)} does not match sectors {n_sectors}")
+                if not np.isclose(g_props.sum(), 1.0, atol=1e-6):
+                    raise ValueError(f"government_proportions must sum to 1.0, got {g_props.sum()}")
+                government_demand = g_props * total_government
+            elif consumption_distribution == "proportional" and initial_demand_proportions is not None:
+                government_demand = initial_demand_proportions * total_government
+            elif consumption_distribution == "uniform":
+                per_sector_g = total_government / len(domestic_indices)
+                government_demand = np.zeros(n_sectors)
+                for i in domestic_indices:
+                    government_demand[i] = per_sector_g
+            elif consumption_distribution == "manual" and proportions is not None:
+                government_demand = np.array(proportions) * total_government
+            else:
+                if initial_demand_proportions is not None:
+                    government_demand = initial_demand_proportions * total_government
+                else:
+                    per_sector_g = total_government / len(domestic_indices)
+                    government_demand = np.zeros(n_sectors)
+                    for i in domestic_indices:
                         government_demand[i] = per_sector_g
             
             # Exports and Imports (closed economy - no external trade)
@@ -482,18 +543,18 @@ def run_tax_policy_simulation(
         
         # Show traditional summary
         print("\n--- Income & Output Evolution Across Iterations ---")
-        print(f"{'Iter':<6} {'Total FD':<15} {'Total Output':<15} {'Total VA (=FD)':<15} {'Wages (net)':<15} {'Surplus (net)':<15} {'Total Tax':<15}")
+        print(f"{'Iter':<6} {'Wages (net)':<15} {'Surplus (net)':<15} {'Total Tax':<15} {'Total FD':<15} {'Total Output':<15} {'Total VA (=FD)':<15}")
         print("-" * 105)
         for hist in iteration_history:
             # VA should equal FD (GDP identity)
             total_va = hist['demand'].sum()  # By definition in IO model
             print(f"{hist['iteration']:<6} "
-                  f"${hist['demand'].sum():>13,.2f}  "
-                  f"${hist['output'].sum():>13,.2f}  "
-                  f"${total_va:>13,.2f}  "
                   f"${hist['after_tax']['wages_net'].sum():>13,.2f}  "
                   f"${hist['after_tax']['surplus_net'].sum():>13,.2f}  "
-                  f"${hist['after_tax']['total_tax'].sum():>13,.2f}")
+                  f"${hist['after_tax']['total_tax'].sum():>13,.2f}  "
+                  f"${hist['demand'].sum():>13,.2f}  "
+                  f"${hist['output'].sum():>13,.2f}  "
+                  f"${total_va:>13,.2f}")
     
     # 4. Run AFTER scenario with new tax rates
     print("\n" + "=" * 100)
@@ -606,40 +667,84 @@ def run_tax_policy_simulation(
                 total_exports = 0.0
                 total_imports = 0.0
                 
-                if consumption_distribution == "proportional" and initial_demand_proportions is not None:
+                if consumption_proportions is not None:
+                    # Use explicit consumption proportions
+                    c_props = np.array(consumption_proportions, dtype=float)
+                    if len(c_props) != n_sectors:
+                        raise ValueError(f"consumption_proportions length {len(c_props)} does not match sectors {n_sectors}")
+                    if not np.isclose(c_props.sum(), 1.0, atol=1e-6):
+                        raise ValueError(f"consumption_proportions must sum to 1.0, got {c_props.sum()}")
+                    consumption_demand_new = c_props * total_consumption
+                elif consumption_distribution == "proportional" and initial_demand_proportions is not None:
                     consumption_demand_new = initial_demand_proportions * total_consumption
-                    investment_demand_new = initial_demand_proportions * total_investment
-                    government_demand_new = initial_demand_proportions * total_government
                 elif consumption_distribution == "uniform":
                     per_sector_c = total_consumption / len(domestic_indices)
-                    per_sector_i = total_investment / len(domestic_indices)
-                    per_sector_g = total_government / len(domestic_indices)
                     consumption_demand_new = np.zeros(n_sectors)
-                    investment_demand_new = np.zeros(n_sectors)
-                    government_demand_new = np.zeros(n_sectors)
                     for i in domestic_indices:
                         consumption_demand_new[i] = per_sector_c
-                        investment_demand_new[i] = per_sector_i
-                        government_demand_new[i] = per_sector_g
                 elif consumption_distribution == "manual" and proportions is not None:
                     consumption_demand_new = np.array(proportions) * total_consumption
-                    investment_demand_new = np.array(proportions) * total_investment
-                    government_demand_new = np.array(proportions) * total_government
                 else:
                     if initial_demand_proportions is not None:
                         consumption_demand_new = initial_demand_proportions * total_consumption
-                        investment_demand_new = initial_demand_proportions * total_investment
-                        government_demand_new = initial_demand_proportions * total_government
                     else:
                         per_sector_c = total_consumption / len(domestic_indices)
-                        per_sector_i = total_investment / len(domestic_indices)
-                        per_sector_g = total_government / len(domestic_indices)
                         consumption_demand_new = np.zeros(n_sectors)
-                        investment_demand_new = np.zeros(n_sectors)
-                        government_demand_new = np.zeros(n_sectors)
                         for i in domestic_indices:
                             consumption_demand_new[i] = per_sector_c
+                
+                # Distribute investment across sectors
+                if investment_proportions is not None:
+                    # Use explicit investment proportions
+                    i_props = np.array(investment_proportions, dtype=float)
+                    if len(i_props) != n_sectors:
+                        raise ValueError(f"investment_proportions length {len(i_props)} does not match sectors {n_sectors}")
+                    if not np.isclose(i_props.sum(), 1.0, atol=1e-6):
+                        raise ValueError(f"investment_proportions must sum to 1.0, got {i_props.sum()}")
+                    investment_demand_new = i_props * total_investment
+                elif consumption_distribution == "proportional" and initial_demand_proportions is not None:
+                    investment_demand_new = initial_demand_proportions * total_investment
+                elif consumption_distribution == "uniform":
+                    per_sector_i = total_investment / len(domestic_indices)
+                    investment_demand_new = np.zeros(n_sectors)
+                    for i in domestic_indices:
+                        investment_demand_new[i] = per_sector_i
+                elif consumption_distribution == "manual" and proportions is not None:
+                    investment_demand_new = np.array(proportions) * total_investment
+                else:
+                    if initial_demand_proportions is not None:
+                        investment_demand_new = initial_demand_proportions * total_investment
+                    else:
+                        per_sector_i = total_investment / len(domestic_indices)
+                        investment_demand_new = np.zeros(n_sectors)
+                        for i in domestic_indices:
                             investment_demand_new[i] = per_sector_i
+                
+                # Distribute government spending across sectors
+                if government_proportions is not None:
+                    # Use explicit government proportions
+                    g_props = np.array(government_proportions, dtype=float)
+                    if len(g_props) != n_sectors:
+                        raise ValueError(f"government_proportions length {len(g_props)} does not match sectors {n_sectors}")
+                    if not np.isclose(g_props.sum(), 1.0, atol=1e-6):
+                        raise ValueError(f"government_proportions must sum to 1.0, got {g_props.sum()}")
+                    government_demand_new = g_props * total_government
+                elif consumption_distribution == "proportional" and initial_demand_proportions is not None:
+                    government_demand_new = initial_demand_proportions * total_government
+                elif consumption_distribution == "uniform":
+                    per_sector_g = total_government / len(domestic_indices)
+                    government_demand_new = np.zeros(n_sectors)
+                    for i in domestic_indices:
+                        government_demand_new[i] = per_sector_g
+                elif consumption_distribution == "manual" and proportions is not None:
+                    government_demand_new = np.array(proportions) * total_government
+                else:
+                    if initial_demand_proportions is not None:
+                        government_demand_new = initial_demand_proportions * total_government
+                    else:
+                        per_sector_g = total_government / len(domestic_indices)
+                        government_demand_new = np.zeros(n_sectors)
+                        for i in domestic_indices:
                             government_demand_new[i] = per_sector_g
                 
                 exports_new = np.zeros(n_sectors)
@@ -677,18 +782,18 @@ def run_tax_policy_simulation(
         
         # Show iteration evolution
         print("\n--- Income & Output Evolution Across Iterations ---")
-        print(f"{'Iter':<6} {'Total FD':<15} {'Total Output':<15} {'Total VA (=FD)':<15} {'Wages (net)':<15} {'Surplus (net)':<15} {'Total Tax':<15}")
+        print(f"{'Iter':<6} {'Wages (net)':<15} {'Surplus (net)':<15} {'Total Tax':<15} {'Total FD':<15} {'Total Output':<15} {'Total VA (=FD)':<15}")
         print("-" * 105)
         for hist in iteration_history_new:
             # VA should equal FD (GDP identity)
             total_va = hist['demand'].sum()  # By definition in IO model
             print(f"{hist['iteration']:<6} "
-                  f"${hist['demand'].sum():>13,.2f}  "
-                  f"${hist['output'].sum():>13,.2f}  "
-                  f"${total_va:>13,.2f}  "
                   f"${hist['after_tax']['wages_net'].sum():>13,.2f}  "
                   f"${hist['after_tax']['surplus_net'].sum():>13,.2f}  "
-                  f"${hist['after_tax']['total_tax'].sum():>13,.2f}")
+                  f"${hist['after_tax']['total_tax'].sum():>13,.2f}  "
+                  f"${hist['demand'].sum():>13,.2f}  "
+                  f"${hist['output'].sum():>13,.2f}  "
+                  f"${total_va:>13,.2f}")
     
     if iterations == 1:
         print_income_summary("Economy with New Tax Rates", after_income, after_after_tax)

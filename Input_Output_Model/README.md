@@ -155,8 +155,43 @@ run_tax_policy_simulation(
 - `iterations`: Number of circular flow iterations (default=1)
 - `consumption_rate`: Share of after-tax income consumed (0.0 to 1.0, default=1.0)
 - `consumption_distribution`: How to distribute consumption
-  - `"proportional"`: Based on sector output shares
+  - `"proportional"`: Based on sector output shares (default)
   - `"uniform"`: Equal across all sectors
+  - `"manual"`: Use the proportions parameter
+
+#### Separate FD Component Proportions (New Feature)
+
+For multi-iteration simulations, you can now specify different distribution patterns for each Final Demand component:
+
+- `consumption_proportions`: Distribution vector for Consumption (C)
+- `investment_proportions`: Distribution vector for Investment (I)
+- `government_proportions`: Distribution vector for Government spending (G)
+
+Each vector must sum to 1.0. This allows realistic modeling where:
+- Consumption favors consumer goods sectors
+- Investment favors capital goods sectors  
+- Government spending follows policy priorities
+
+**Example:**
+```python
+# Consumption favors consumer sectors
+consumption_props = [0.35, 0.30, 0.20, 0.10, 0.05, 0.0]
+# Investment favors capital goods
+investment_props = [0.10, 0.15, 0.40, 0.25, 0.10, 0.0]
+# Government more balanced
+government_props = [0.20, 0.20, 0.20, 0.20, 0.20, 0.0]
+
+run_tax_policy_simulation(
+    total_demand=500.0,
+    proportions=[0.30, 0.25, 0.20, 0.15, 0.10, 0.0],  # Initial demand only
+    consumption_proportions=consumption_props,
+    investment_proportions=investment_props,
+    government_proportions=government_props,
+    iterations=5
+)
+```
+
+If these are not provided, the system falls back to the `consumption_distribution` setting.
 
 ## Key Concepts
 
