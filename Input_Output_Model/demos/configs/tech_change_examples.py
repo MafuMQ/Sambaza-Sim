@@ -6,13 +6,21 @@ Configuration dictionaries for technological change simulation examples.
 Each example demonstrates different types of technological innovation and their economic impacts.
 
 Key Principle: Hold final demand CONSTANT to isolate the pure effect of technological change.
+
+Change Levels:
+- Level 1 (Matrix): Direct A matrix coefficient changes (fast, no rebuild)
+- Level 2 (Productions): Changes to production records (requires matrix rebuild)
+- Level 3 (Curves): Changes to supply curve tiers (requires supply data rebuild)
 """
 
 import logging
 from Input_Output_Model.demos.util.technological_change import (
     TechnologicalChange,
     create_energy_efficiency_change,
-    create_productivity_improvement
+    create_productivity_improvement,
+    LEVEL_MATRIX,
+    LEVEL_PRODUCTION,
+    LEVEL_CURVE
 )
 
 logger = logging.getLogger(__name__)
@@ -116,6 +124,121 @@ def _create_custom_changes():
     return tech
 
 
+def _create_multi_level_production_changes():
+    """
+    Create a multi-level technological change demonstrating production-level modifications.
+    
+    This changes underlying production records rather than just the A matrix coefficients.
+    The matrix will be rebuilt from the modified productions.
+    """
+    tech = TechnologicalChange(
+        name="Production-Level Modernization",
+        description="Firm-level technology adoption affecting underlying production methods"
+    )
+    
+    # Level 2: Production-level changes
+    # These require the matrix to be rebuilt from modified production records
+    # Note: production_id refers to database IDs, which may vary by setup
+    # For a demo, we use IDs 1-5 assuming a basic setup
+    
+    # Production 1: Reduce all input costs by 10% (process improvement)
+    tech.add_production_all_inputs_change(
+        production_id=1,
+        change_type="multiply",
+        value=0.90  # 10% cost reduction
+    )
+    
+    # Production 2: Improve material efficiency
+    tech.add_production_efficiency_change(
+        production_id=2,
+        efficiency_type="material",
+        change_type="add",
+        value=15  # +15 efficiency points
+    )
+    
+    # Also add a matrix-level change to show mixed levels
+    # Level 1: Additional productivity improvement in sector 3
+    tech.add_sector_change(
+        sector_idx=3,
+        change_type="multiply",
+        value=0.95  # 5% reduction in all inputs
+    )
+    
+    return tech
+
+
+def _create_capacity_expansion():
+    """
+    Create a curve-level technological change demonstrating supply capacity modifications.
+    
+    This changes the supply curve tiers (capacity and prices) for a sector.
+    """
+    tech = TechnologicalChange(
+        name="Capacity Expansion with Cost Reduction",
+        description="New production capacity comes online at lower cost"
+    )
+    
+    # Level 3: Curve-level changes
+    # Add new low-cost capacity tier to sector A01
+    tech.add_curve_new_tier(
+        isic="A01",
+        cap=100,       # 100 units of new capacity
+        price=35.0,    # At lower price than existing
+        position=0     # Insert at beginning (cheapest tier)
+    )
+    
+    # Expand existing capacity in sector A02
+    tech.add_curve_tier_change(
+        isic="A02",
+        tier_index=0,
+        field="cap",
+        change_type="multiply",
+        value=1.5  # 50% capacity increase
+    )
+    
+    # Reduce prices across all tiers in sector A03 (technology improvement)
+    tech.add_curve_scale_all_tiers(
+        isic="A03",
+        field="price",
+        change_type="multiply",
+        value=0.85  # 15% price reduction
+    )
+    
+    return tech
+
+
+def _create_green_tech_with_carbon_tax():
+    """
+    Create a green technology transition combined with carbon tax policy.
+    
+    This demonstrates how to combine:
+    - Technological change (energy efficiency improvements)
+    - Tax policy (increased corporate tax to represent carbon pricing)
+    """
+    tech = TechnologicalChange(
+        name="Green Transition + Carbon Tax",
+        description="Energy efficiency improvements with carbon tax funding transition"
+    )
+    
+    # Level 1: Energy efficiency improvements
+    # Reduce energy inputs across all sectors (assume energy is sector 1)
+    tech.add_input_change(
+        input_sector_idx=1,
+        change_type="multiply",
+        value=0.70  # 30% reduction through efficiency
+    )
+    
+    # Level 1: Material efficiency in manufacturing (sector 2)
+    tech.add_sector_change(
+        sector_idx=2,
+        change_type="multiply",
+        value=0.85,  # 15% reduction
+        exclude_inputs=[]
+    )
+    
+    return tech
+
+
 # Technological Change Examples Configuration
 TECH_CHANGE_EXAMPLES = {
     1: {
@@ -204,5 +327,82 @@ TECH_CHANGE_EXAMPLES = {
         ],
         "tech_change_builder": lambda isic_map: _create_custom_changes(),
         "final_demand": [190.0, 210.0, 240.0, 160.0, 200.0, 0.0]
+    },
+    
+    # === Multi-Level Examples (Production + Curve Level Changes) ===
+    
+    7: {
+        "title": "Multi-Level: Production-Level Modernization",
+        "description": [
+            "LEVEL 2 (Production) + LEVEL 1 (Matrix) changes combined:",
+            "",
+            "This example modifies underlying PRODUCTION RECORDS, requiring",
+            "the A matrix to be rebuilt from the modified data. Changes include:",
+            "  - Production #1: 10% input cost reduction (process improvement)",
+            "  - Production #2: +15 material efficiency points",
+            "  - Sector [3]: 5% productivity gain (matrix level)",
+            "",
+            "Note: Production IDs depend on your database setup."
+        ],
+        "tech_change_builder": lambda isic_map: _create_multi_level_production_changes(),
+        "final_demand": [200.0, 200.0, 200.0, 200.0, 200.0, 0.0],
+        "use_multi_level": True  # Flag for demo.py to use tech_change parameter
+    },
+    
+    8: {
+        "title": "Multi-Level: Capacity Expansion with Cost Reduction",
+        "description": [
+            "LEVEL 3 (Curve) changes - Modifies supply curve tiers:",
+            "",
+            "This example changes the SUPPLY CURVES, affecting the",
+            "price/capacity structure used by the equilibrium solver:",
+            "  - A01: Add new 100-unit tier at $35 (cheapest)",
+            "  - A02: 50% capacity increase in tier 0",
+            "  - A03: 15% price reduction across all tiers",
+            "",
+            "Best used with solver_type='supply_curves'."
+        ],
+        "tech_change_builder": lambda isic_map: _create_capacity_expansion(),
+        "final_demand": [200.0, 200.0, 200.0, 200.0, 200.0, 0.0],
+        "use_multi_level": True,
+        "solver_type": "supply_curves"  # Curve changes need supply_curves solver
+    },
+    
+    # === Combined Technology + Tax Policy Example ===
+    
+    9: {
+        "title": "COMBINED: Green Transition + Carbon Tax Policy",
+        "description": [
+            "Demonstrates SIMULTANEOUS technological change AND tax policy:",
+            "",
+            "TECHNOLOGICAL CHANGE (Energy & Material Efficiency):",
+            "  - 30% energy efficiency improvement (all sectors)",
+            "  - 15% material efficiency in manufacturing (sector 2)",
+            "",
+            "TAX POLICY CHANGE (Carbon Tax Implementation):",
+            "  - Corporate tax: 25% → 35% (carbon pricing on profits)",
+            "  - Income tax: 15% → 20% (to fund green transition)",
+            "",
+            "This models a comprehensive climate policy combining:",
+            "  1. Technology incentives/adoption (efficiency gains)",
+            "  2. Carbon pricing (via tax increases)",
+            "  3. Revenue recycling (government spending on green infrastructure)",
+            "",
+            "The simulation shows how tech improvements can offset",
+            "economic impacts of carbon taxation."
+        ],
+        "tech_change_builder": lambda isic_map: _create_green_tech_with_carbon_tax(),
+        "final_demand": [250.0, 200.0, 280.0, 180.0, 170.0, 0.0],
+        "use_multi_level": True,
+        # Tax policy parameters (the key addition!)
+        "income_tax_rate_before": 0.15,
+        "income_tax_rate_after": 0.20,  # 5% increase
+        "corporate_tax_rate_before": 0.25,
+        "corporate_tax_rate_after": 0.35,  # 10% increase (carbon tax)
+        "income_tax_applies_to": "bonusWages",
+        "iterations": 3,  # Show circular flow effects
+        "consumption_proportions": [0.30, 0.25, 0.20, 0.15, 0.10, 0.0],
+        "investment_proportions": [0.10, 0.15, 0.40, 0.25, 0.10, 0.0],  # Green investment
+        "government_proportions": [0.20, 0.25, 0.25, 0.20, 0.10, 0.0]   # Green infrastructure
     }
 }

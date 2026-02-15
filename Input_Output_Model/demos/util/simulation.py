@@ -943,6 +943,9 @@ def run_simulation(
     VA_after=None,
     isic_map=None,
     
+    # ---- Multi-Level Technological Change ----
+    tech_change=None,  # TechnologicalChange object for multi-level changes
+    
     # ---- Tax Policy (before/after) ----
     income_tax_rate_before=0.0,
     income_tax_rate_after=0.0,
@@ -1003,6 +1006,11 @@ def run_simulation(
             After/changed VA coefficients (None = same as before)
         isic_map : dict
             Mapping of ISIC codes to matrix indices (None = build from DB)
+        tech_change : TechnologicalChange
+            Multi-level TechnologicalChange object. If provided, changes are applied:
+            1. Production-level changes -> rebuild A matrix
+            2. Curve-level changes -> rebuild supply data
+            3. Matrix-level changes -> direct A matrix modifications
     
     TAX POLICY:
         income_tax_rate_before/after : float
@@ -1053,7 +1061,56 @@ def run_simulation(
         A_before, VA_before, isic_map = build_io_matrix(demoDB=False, loggingLevel=loggingLevel)
         print(f"\n[OK] IO Matrix Built. Sectors: {len(isic_map)}")
     
-    if A_after is None:
+    # ==================================================================
+    # 1b. Apply multi-level technological change (if provided)
+    # ==================================================================
+    supply_data_after = None  # For curve-level changes
+    
+    if tech_change is not None:
+        from Input_Output_Model.demos.util.technological_change import LEVEL_MATRIX, LEVEL_PRODUCTION, LEVEL_CURVE
+        
+        change_levels = tech_change.get_change_levels()
+        print("\n" + "=" * 100)
+        print(f"APPLYING MULTI-LEVEL TECHNOLOGICAL CHANGE: {tech_change.name}")
+        print("=" * 100)
+        print(f"Change levels: {', '.join(change_levels)}")
+        
+        # Start with baseline as A_after
+        if A_after is None:
+            A_after = A_before.copy()
+        if VA_after is None:
+            VA_after = VA_before.copy()
+        
+        # Level 2: Production-level changes (rebuild matrix)
+        if tech_change.has_production_changes():
+            print(f"\n[Production Level] Applying {len(tech_change.production_changes)} changes...")
+            ptdb = ProductionsDatabase()
+            scdb = SupplyCurveDatabase()
+            result = tech_change.apply_to_productions(ptdb, scdb, rebuild_matrix=True, loggingLevel=loggingLevel)
+            
+            if result['A_matrix'] is not None:
+                A_after = result['A_matrix']
+                VA_after = result['VA_vector']
+                isic_map = result['isic_map']
+                print(f"  [OK] Matrix rebuilt from {len(result['productions'])} modified productions")
+        
+        # Level 3: Curve-level changes (rebuild supply data)
+        if tech_change.has_curve_changes():
+            print(f"\n[Curve Level] Applying {len(tech_change.curve_changes)} changes...")
+            scdb = SupplyCurveDatabase()
+            result = tech_change.apply_to_curves(scdb, isic_map)
+            supply_data_after = result['supply_data']
+            print(f"  [OK] Supply data rebuilt: {len(result['modified_curves'])} curves modified")
+        
+        # Level 1: Matrix-level changes (direct A matrix modification)
+        if tech_change.has_matrix_changes():
+            print(f"\n[Matrix Level] Applying {len(tech_change.matrix_changes)} changes...")
+            A_after, VA_after = tech_change.apply(A_after, VA_after)
+            print(f"  [OK] A matrix and VA coefficients updated")
+        
+        print(tech_change.get_summary())
+    
+    elif A_after is None:
         A_after = A_before.copy()
     if VA_after is None:
         VA_after = VA_before.copy()
@@ -1183,7 +1240,12 @@ def run_simulation(
         print(f"[OK] Loaded supply curves for {len(supply_data)} sectors.")
         
         solver_before_obj = DynamicEquilibriumSolver(A_before, isic_map, supply_data)
-        if has_tech_change:
+        
+        # Use modified supply data for "after" scenario if curve-level changes were applied
+        if supply_data_after is not None:
+            print(f"[OK] Using modified supply curves for '{after_name}' scenario.")
+            solver_after_obj = DynamicEquilibriumSolver(A_after, isic_map, supply_data_after)
+        elif has_tech_change:
             solver_after_obj = DynamicEquilibriumSolver(A_after, isic_map, supply_data)
         else:
             solver_after_obj = solver_before_obj

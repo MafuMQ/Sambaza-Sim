@@ -48,9 +48,9 @@ EXAMPLES = {}
 for key, value in TAX_POLICY_EXAMPLES.items():
     EXAMPLES[key] = value
 
-# Add tech change examples (7-12)
+# Add tech change examples (7-15, including combined tech+tax example)
 for key, value in TECH_CHANGE_EXAMPLES.items():
-    EXAMPLES[key + 6] = {
+    example_config = {
         "title": value["title"],
         "description": value["description"],
         "params": {
@@ -63,6 +63,22 @@ for key, value in TECH_CHANGE_EXAMPLES.items():
             }
         }
     }
+    # Pass through multi-level and solver_type flags
+    if value.get("use_multi_level"):
+        example_config["params"]["use_multi_level"] = True
+    if value.get("solver_type"):
+        example_config["params"]["solver_type"] = value["solver_type"]
+    
+    # Pass through tax policy parameters if present (for combined examples)
+    tax_params = ["income_tax_rate_before", "income_tax_rate_after", 
+                  "corporate_tax_rate_before", "corporate_tax_rate_after",
+                  "income_tax_applies_to", "iterations",
+                  "consumption_proportions", "investment_proportions", "government_proportions"]
+    for param in tax_params:
+        if param in value:
+            example_config["params"][param] = value[param]
+    
+    EXAMPLES[key + 6] = example_config
 
 
 def run_demo(example_id, examples_config=EXAMPLES):
@@ -119,10 +135,16 @@ def run_technological_change_comparison(config):
     This demonstrates how to compare baseline vs. changed technology
     while holding final demand constant to isolate the pure effect
     of technological innovation.
+    
+    Supports both:
+    - Matrix-level changes (direct A matrix modification)
+    - Multi-level changes (production/curve level, requires rebuild)
     """
     params = config['params']
     final_demand = np.array(params['final_demand'], dtype=float)
     tech_config = params['tech_change_config']
+    use_multi_level = params.get('use_multi_level', False)
+    solver_type = params.get('solver_type', 'leontief')
     
     print("="*100)
     print("TECHNOLOGICAL CHANGE COMPARISON MODE")
@@ -132,51 +154,57 @@ def run_technological_change_comparison(config):
     print(f"  2. {tech_config['name']}")
     print(f"\nFinal Demand (constant): {final_demand}")
     print(f"Total FD: {final_demand.sum():.2f}")
-    print()
     
-    # Build baseline IO matrix
-    print("Building baseline Input-Output matrix...")
-    A_baseline, VA_baseline, isic_map = build_io_matrix(demoDB=False, loggingLevel=loggingLevel)
-    n_sectors = len(isic_map)
-    print(f"[OK] Matrix built with {n_sectors} sectors")
+    # Create the technological change object
+    tech_change = tech_config['tech_change_builder']({})  # Pass empty isic_map initially
     
-    # Display baseline matrix structure
-    print("\nBaseline Technical Coefficient Matrix (A):")
-    print(f"{'':>5}", end='')
-    for j in range(n_sectors):
-        print(f"{j:>8}", end='')
-    print()
-    for i in range(n_sectors):
-        print(f"{i:>3} |", end='')
-        for j in range(n_sectors):
-            print(f"{A_baseline[i,j]:>8.4f}", end='')
+    if use_multi_level:
+        # For multi-level changes, let run_simulation handle everything
+        print(f"\n[Multi-Level Mode] Changes will be applied at: {', '.join(tech_change.get_change_levels())}")
+        print(tech_change.get_summary())
         print()
-    
-    print("\nBaseline Value Added Coefficients (VA):")
-    for j in range(n_sectors):
-        print(f"  Sector {j}: {VA_baseline[j]:.4f}")
-    print()
-    
-    # Create and apply technological change using the builder function
-    print("="*100)
-    print("Defining Technological Change")
-    print("="*100)
-    tech_change = tech_config['tech_change_builder'](isic_map)
-    print(tech_change.get_summary())
-    print()
-    
-    # Apply technological change
-    print("="*100)
-    print("Applying Technological Change")
-    print("="*100)
-    A_changed, VA_changed = tech_change.apply(A_baseline, VA_baseline)
-    print("[OK] Technological change applied")
-    
-    # Show what changed in the A matrix
-    print("\nChanges in Technical Coefficients (ΔA):")
-    delta_A = A_changed - A_baseline
-    max_change = np.abs(delta_A).max()
-    if max_change > 0.0001:
+        
+        iterations = params.get('iterations', 1)
+        # Support separate before/after tax rates for combined tech+tax examples
+        income_tax_before = params.get('income_tax_rate_before', 0.0)
+        income_tax_after = params.get('income_tax_rate_after', income_tax_before)
+        corp_tax_before = params.get('corporate_tax_rate_before', 0.0)
+        corp_tax_after = params.get('corporate_tax_rate_after', corp_tax_before)
+        
+        # Use tech_change parameter - simulation will rebuild as needed
+        comparison = run_simulation(
+            final_demand=final_demand,
+            tech_change=tech_change,  # Pass the TechnologicalChange object
+            before_name="Baseline Technology",
+            after_name=tech_config['name'],
+            iterations=iterations,
+            demand_distribution=params.get('demand_distribution', 'proportional'),
+            income_tax_rate_before=income_tax_before,
+            income_tax_rate_after=income_tax_after,
+            corporate_tax_rate_before=corp_tax_before,
+            corporate_tax_rate_after=corp_tax_after,
+            income_tax_applies_to=params.get('income_tax_applies_to', 'bonusWages'),
+            consumption_proportions=params.get('consumption_proportions', None),
+            investment_proportions=params.get('investment_proportions', None),
+            government_proportions=params.get('government_proportions', None),
+            consumption_rate=params.get('consumption_rate', 1.0),
+            solver_type=solver_type,
+        )
+    else:
+        # Matrix-level only: manual approach with full display
+        print()
+        
+        # Build baseline IO matrix
+        print("Building baseline Input-Output matrix...")
+        A_baseline, VA_baseline, isic_map = build_io_matrix(demoDB=False, loggingLevel=loggingLevel)
+        n_sectors = len(isic_map)
+        print(f"[OK] Matrix built with {n_sectors} sectors")
+        
+        # Rebuild tech_change with actual isic_map
+        tech_change = tech_config['tech_change_builder'](isic_map)
+        
+        # Display baseline matrix structure
+        print("\nBaseline Technical Coefficient Matrix (A):")
         print(f"{'':>5}", end='')
         for j in range(n_sectors):
             print(f"{j:>8}", end='')
@@ -184,64 +212,102 @@ def run_technological_change_comparison(config):
         for i in range(n_sectors):
             print(f"{i:>3} |", end='')
             for j in range(n_sectors):
-                val = delta_A[i,j]
-                if abs(val) > 0.0001:
-                    print(f"{val:>+8.4f}", end='')
-                else:
-                    print(f"{'':>8}", end='')
+                print(f"{A_baseline[i,j]:>8.4f}", end='')
             print()
-    else:
-        print("  (No significant changes in A matrix)")
-    
-    print("\nChanges in Value Added Coefficients (ΔVA):")
-    delta_VA = VA_changed - VA_baseline
-    for j in range(n_sectors):
-        if abs(delta_VA[j]) > 0.0001:
-            print(f"  Sector {j}: {delta_VA[j]:+.4f} (from {VA_baseline[j]:.4f} to {VA_changed[j]:.4f})")
-    
-    print("\n" + "="*100)
-    print("Final Demand (SAME for both scenarios)")
-    print("="*100)
-    print(f"\nFinal Demand Vector: {final_demand}")
-    print(f"Total Final Demand: {final_demand.sum():.2f}")
-    
-    # Compare scenarios
-    print("\n" + "="*100)
-    print("SCENARIO COMPARISON")
-    print("="*100)
-    iterations = params.get('iterations', 1)
-    if iterations > 1:
-        print(f"\nComparing outcomes with THE SAME initial final demand over {iterations} iterations...")
-        print("This isolates the pure effect of technological change and shows how it compounds over time.")
-    else:
-        print("\nComparing outcomes with THE SAME final demand...")
-        print("This isolates the pure effect of technological change.")
-    
-    # Run unified simulation
-    tax_rate = params.get('income_tax_rate', 0.0)
-    corp_rate = params.get('corporate_tax_rate', 0.0)
-    comparison = run_simulation(
-        final_demand=final_demand,
-        A_before=A_baseline,
-        A_after=A_changed,
-        VA_before=VA_baseline,
-        VA_after=VA_changed,
-        isic_map=isic_map,
-        before_name="Baseline Technology",
-        after_name=tech_config['name'],
-        iterations=iterations,
-        demand_distribution=params.get('demand_distribution', 'proportional'),
-        income_tax_rate_before=tax_rate,
-        income_tax_rate_after=tax_rate,
-        corporate_tax_rate_before=corp_rate,
-        corporate_tax_rate_after=corp_rate,
-        income_tax_applies_to=params.get('income_tax_applies_to', 'bonusWages'),
-        consumption_proportions=params.get('consumption_proportions', None),
-        investment_proportions=params.get('investment_proportions', None),
-        government_proportions=params.get('government_proportions', None),
-        consumption_rate=params.get('consumption_rate', 1.0),
-        solver_type="leontief",
-    )
+        
+        print("\nBaseline Value Added Coefficients (VA):")
+        for j in range(n_sectors):
+            print(f"  Sector {j}: {VA_baseline[j]:.4f}")
+        print()
+        
+        # Create and apply technological change using the builder function
+        print("="*100)
+        print("Defining Technological Change")
+        print("="*100)
+        print(tech_change.get_summary())
+        print()
+        
+        # Apply technological change
+        print("="*100)
+        print("Applying Technological Change")
+        print("="*100)
+        A_changed, VA_changed = tech_change.apply(A_baseline, VA_baseline)
+        print("[OK] Technological change applied")
+        
+        # Show what changed in the A matrix
+        print("\nChanges in Technical Coefficients (ΔA):")
+        delta_A = A_changed - A_baseline
+        max_change = np.abs(delta_A).max()
+        if max_change > 0.0001:
+            print(f"{'':>5}", end='')
+            for j in range(n_sectors):
+                print(f"{j:>8}", end='')
+            print()
+            for i in range(n_sectors):
+                print(f"{i:>3} |", end='')
+                for j in range(n_sectors):
+                    val = delta_A[i,j]
+                    if abs(val) > 0.0001:
+                        print(f"{val:>+8.4f}", end='')
+                    else:
+                        print(f"{'':>8}", end='')
+                print()
+        else:
+            print("  (No significant changes in A matrix)")
+        
+        print("\nChanges in Value Added Coefficients (ΔVA):")
+        delta_VA = VA_changed - VA_baseline
+        for j in range(n_sectors):
+            if abs(delta_VA[j]) > 0.0001:
+                print(f"  Sector {j}: {delta_VA[j]:+.4f} (from {VA_baseline[j]:.4f} to {VA_changed[j]:.4f})")
+        
+        print("\n" + "="*100)
+        print("Final Demand (SAME for both scenarios)")
+        print("="*100)
+        print(f"\nFinal Demand Vector: {final_demand}")
+        print(f"Total Final Demand: {final_demand.sum():.2f}")
+        
+        # Compare scenarios
+        print("\n" + "="*100)
+        print("SCENARIO COMPARISON")
+        print("="*100)
+        iterations = params.get('iterations', 1)
+        if iterations > 1:
+            print(f"\nComparing outcomes with THE SAME initial final demand over {iterations} iterations...")
+            print("This isolates the pure effect of technological change and shows how it compounds over time.")
+        else:
+            print("\nComparing outcomes with THE SAME final demand...")
+            print("This isolates the pure effect of technological change.")
+        
+        # Run unified simulation
+        # Support separate before/after tax rates for combined tech+tax examples
+        income_tax_before = params.get('income_tax_rate_before', 0.0)
+        income_tax_after = params.get('income_tax_rate_after', income_tax_before)
+        corp_tax_before = params.get('corporate_tax_rate_before', 0.0)
+        corp_tax_after = params.get('corporate_tax_rate_after', corp_tax_before)
+        
+        comparison = run_simulation(
+            final_demand=final_demand,
+            A_before=A_baseline,
+            A_after=A_changed,
+            VA_before=VA_baseline,
+            VA_after=VA_changed,
+            isic_map=isic_map,
+            before_name="Baseline Technology",
+            after_name=tech_config['name'],
+            iterations=iterations,
+            demand_distribution=params.get('demand_distribution', 'proportional'),
+            income_tax_rate_before=income_tax_before,
+            income_tax_rate_after=income_tax_after,
+            corporate_tax_rate_before=corp_tax_before,
+            corporate_tax_rate_after=corp_tax_after,
+            income_tax_applies_to=params.get('income_tax_applies_to', 'bonusWages'),
+            consumption_proportions=params.get('consumption_proportions', None),
+            investment_proportions=params.get('investment_proportions', None),
+            government_proportions=params.get('government_proportions', None),
+            consumption_rate=params.get('consumption_rate', 1.0),
+            solver_type=solver_type,
+        )
     
     # Additional interpretation for tech change examples
     if comparison and iterations == 1:
@@ -299,11 +365,22 @@ def list_examples():
         if i in EXAMPLES:
             print(f"  {i}. {EXAMPLES[i]['title']}")
     
-    print("\nTechnological Change Examples (7-12):")
+    print("\nTechnological Change Examples - Matrix Level (7-12):")
     print("-" * 100)
     for i in range(7, 13):
         if i in EXAMPLES:
             print(f"  {i}. {EXAMPLES[i]['title']}")
+    
+    print("\nTechnological Change Examples - Multi-Level (13-14):")
+    print("-" * 100)
+    for i in range(13, 15):
+        if i in EXAMPLES:
+            print(f"  {i}. {EXAMPLES[i]['title']}")
+    
+    print("\nCombined Technology + Tax Policy (15):")
+    print("-" * 100)
+    if 15 in EXAMPLES:
+        print(f"  15. {EXAMPLES[15]['title']}")
     
     print("\n" + "="*100)
 
@@ -325,7 +402,7 @@ if __name__ == "__main__":
     #     print("\n\n")
 
     # Run a specific example
-    example_number = 10
+    example_number = 13
     run_demo(example_number)
     
     print("\n" + "="*100)
