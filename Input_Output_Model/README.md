@@ -23,10 +23,14 @@ A comprehensive Input-Output (IO) economic modeling system with support for circ
 ```
 Input_Output_Model/
 ├── demos/
-│   ├── demo.py                         # Example simulations and usage demonstrations
+│   ├── demo.py                         # Unified demo script (Examples 1-12)
+│   ├── configs/                        # Example configurations
+│   │   ├── tax_policy_examples.py      # Tax policy examples (1-6)
+│   │   └── tech_change_examples.py     # Tech change examples (7-12)
 │   └── util/
 │       ├── Setup_Data.py               # Data initialization and foreign exchange setup
-│       └── tax_policy_simulation.py    # Tax policy simulation engine
+│       ├── simulation.py               # Unified simulation engine
+│       └── technological_change.py     # Technological change class
 ├── models/
 │   ├── entities/
 │   │   ├── Good.py                     # Good entity with ISIC classification
@@ -68,7 +72,7 @@ pip install sqlalchemy sympy numpy pandas faker matplotlib ipywidgets seaborn
 
 ```python
 from Input_Output_Model.demos.util.Setup_Data import setup_data
-from Input_Output_Model.demos.util.tax_policy_simulation import run_tax_policy_simulation
+from Input_Output_Model.demos.util.simulation import run_tax_policy_simulation
 
 # Setup sample data
 setup_data(source="data/ex2", overwrite_existing_data=True)

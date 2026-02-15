@@ -3,153 +3,66 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 import logging
+import numpy as np
 from Input_Output_Model.demos.util.Setup_Data import setup_data
-from Input_Output_Model.demos.util.tax_policy_simulation import run_tax_policy_simulation
+from Input_Output_Model.demos.util.simulation import run_simulation
+from Input_Output_Model.demos.util.technological_change import TechnologicalChange
+from Input_Output_Model.util.Evaluators import build_io_matrix
+from Input_Output_Model.demos.configs import TAX_POLICY_EXAMPLES, TECH_CHANGE_EXAMPLES
 
 loggingLevel = logging.WARNING
 logging.basicConfig(level=loggingLevel)
 logger = logging.getLogger(__name__)
 
 """
-Tax Policy Simulation Demos
-============================
+Unified Demo Script for Input-Output Economic Modeling
+=======================================================
 
-This module demonstrates various scenarios for Input-Output economic modeling with
-circular flow dynamics and tax policy analysis.
+This module provides a comprehensive demonstration of Input-Output economic modeling,
+including:
+
+1. Tax Policy Analysis (Examples 1-6):
+   - Circular flow dynamics
+   - Income and corporate tax impacts
+   - Demand shocks and spillover effects
+   - Differentiated C/I/G distributions
+
+2. Technological Change Analysis (Examples 7-12):
+   - Energy efficiency improvements
+   - Productivity gains
+   - Automation and capital-labor substitution
+   - Material efficiency and green transitions
 
 Key Features:
-- Value Added (VA) = Final Demand (FD) identity is maintained through proper scaling
+- Value Added (VA) = Final Demand (FD) identity maintained
 - Circular flow: VA from period t becomes C+I+G in period t+1
-- Tax policy comparison: analyze impact of tax rate changes on economy
-- Multiple demand specification methods: direct, uniform, proportional, sector-specific
-- Separate proportion vectors for Consumption, Investment, and Government spending
+- Multiple demand specification methods
+- Support for both Leontief inverse and supply curve solvers
+- Comprehensive output displays with iteration tracking
 """
 
-# Example configurations
-EXAMPLES = {
-    1: {
-        "title": "Circular Flow Model - Stable GDP (5 iterations)",
-        "description": [
-            "Demonstrates that with correct VA calculation, GDP remains stable across iterations",
-            "in a closed economy with no savings. VA = FD in every period.",
-            "Uses proportional distribution based on initial demand pattern."
-        ],
+# Merge all examples into a single dictionary with renumbered tech change examples
+EXAMPLES = {}
+
+# Add tax policy examples (1-6)
+for key, value in TAX_POLICY_EXAMPLES.items():
+    EXAMPLES[key] = value
+
+# Add tech change examples (7-12)
+for key, value in TECH_CHANGE_EXAMPLES.items():
+    EXAMPLES[key + 6] = {
+        "title": value["title"],
+        "description": value["description"],
         "params": {
-            "total_demand": 1000.0,
-            "proportions": [0.25, 0.20, 0.30, 0.15, 0.10, 0.0],
-            "consumption_proportions": [0.25, 0.20, 0.30, 0.15, 0.10, 0.0],
-            "investment_proportions": [0.25, 0.20, 0.30, 0.15, 0.10, 0.0],
-            "government_proportions": [0.25, 0.20, 0.30, 0.15, 0.10, 0.0],
-            "income_tax_rate_before": 0.10,
-            "income_tax_rate_after": 0.10,
-            "corporate_tax_rate_before": 0.25,
-            "corporate_tax_rate_after": 0.25,
-            "income_tax_applies_to": "bonusWages",
-            "iterations": 5
-        }
-    },
-    2: {
-        "title": "Tax Policy Impact - Income Tax Increase (10% → 20%)",
-        "description": [
-            "Compare economy before and after income tax increase on bonus wages.",
-            "Uses separate proportions for C, I, and G to show how different FD components",
-            "are distributed across sectors."
-        ],
-        "params": {
-            "total_demand": 500.0,
-            "proportions": [0.30, 0.25, 0.20, 0.15, 0.10, 0.0],
-            "consumption_proportions": [0.35, 0.30, 0.20, 0.10, 0.05, 0.0],  # Consumer goods
-            "investment_proportions": [0.10, 0.15, 0.40, 0.25, 0.10, 0.0],   # Capital goods
-            "government_proportions": [0.20, 0.20, 0.20, 0.20, 0.20, 0.0],   # Balanced
-            "income_tax_rate_before": 0.10,
-            "income_tax_rate_after": 0.20,
-            "corporate_tax_rate_before": 0.25,
-            "corporate_tax_rate_after": 0.25,
-            "income_tax_applies_to": "bonusWages",
-            "iterations": 3
-        }
-    },
-    3: {
-        "title": "Tax Policy Impact - Corporate Tax Increase (25% → 35%)",
-        "description": [
-            "Analyze how corporate tax increase affects investment and GDP.",
-            "Investment heavily concentrated in capital goods sectors [2,3]."
-        ],
-        "params": {
-            "total_demand": 500.0,
-            "proportions": [0.20, 0.20, 0.30, 0.20, 0.10, 0.0],
-            "consumption_proportions": [0.30, 0.25, 0.20, 0.15, 0.10, 0.0],  # Consumer pattern
-            "investment_proportions": [0.05, 0.10, 0.45, 0.30, 0.10, 0.0],   # Heavy on capital
-            "government_proportions": [0.25, 0.20, 0.20, 0.20, 0.15, 0.0],   # Balanced
-            "income_tax_rate_before": 0.15,
-            "income_tax_rate_after": 0.15,
-            "corporate_tax_rate_before": 0.25,
-            "corporate_tax_rate_after": 0.35,
-            "income_tax_applies_to": "bonusWages",
-            "iterations": 3
-        }
-    },
-    4: {
-        "title": "Sector-Specific Demand Shock with Spillover Effects",
-        "description": [
-            "Analyze the impact of $200 demand increase in sector [2].",
-            "Shows how initial shock spreads through economy via C, I, G channels."
-        ],
-        "params": {
-            "target_isic": "A2327_978_13",
-            "demand_shock": 200.0,
-            "consumption_proportions": [0.35, 0.30, 0.20, 0.10, 0.05, 0.0],  # Consumer goods
-            "investment_proportions": [0.10, 0.15, 0.40, 0.25, 0.10, 0.0],   # Capital goods
-            "government_proportions": [0.20, 0.20, 0.20, 0.20, 0.20, 0.0],   # Balanced
-            "income_tax_rate_before": 0.15,
-            "income_tax_rate_after": 0.20,
-            "corporate_tax_rate_before": 0.25,
-            "corporate_tax_rate_after": 0.30,
-            "income_tax_applies_to": "bonusWages",
-            "iterations": 3
-        }
-    },
-    5: {
-        "title": "Uniform Demand Distribution Across All FD Components",
-        "description": [
-            "Apply equal $75 initial demand to each domestic sector.",
-            "C, I, and G are all uniformly distributed (equal shares to all sectors)."
-        ],
-        "params": {
-            "uniform_demand": 75.0,
-            "consumption_proportions": [0.20, 0.20, 0.20, 0.20, 0.20, 0.0],  # Uniform
-            "investment_proportions": [0.20, 0.20, 0.20, 0.20, 0.20, 0.0],   # Uniform
-            "government_proportions": [0.20, 0.20, 0.20, 0.20, 0.20, 0.0],   # Uniform
-            "income_tax_rate_before": 0.12,
-            "income_tax_rate_after": 0.18,
-            "corporate_tax_rate_before": 0.20,
-            "corporate_tax_rate_after": 0.28,
-            "income_tax_applies_to": "wages",
-            "iterations": 3
-        }
-    },
-    6: {
-        "title": "Highly Differentiated C, I, G Distributions",
-        "description": [
-            "Specify exact initial demand, then show extreme differentiation:",
-            "  C: Heavily in consumer sectors [0,1]",
-            "  I: Concentrated in capital/manufacturing [2,3]",
-            "  G: Focused on services and infrastructure [1,4]"
-        ],
-        "params": {
-            "demand_vector": [150.0, 120.0, 180.0, 90.0, 60.0, 0.0],
-            "consumption_proportions": [0.40, 0.35, 0.15, 0.05, 0.05, 0.0],  # Consumer focus
-            "investment_proportions": [0.05, 0.05, 0.50, 0.35, 0.05, 0.0],   # Manufacturing
-            "government_proportions": [0.10, 0.30, 0.10, 0.10, 0.40, 0.0],   # Services
-            "income_tax_rate_before": 0.15,
-            "income_tax_rate_after": 0.25,
-            "corporate_tax_rate_before": 0.25,
-            "corporate_tax_rate_after": 0.25,
-            "income_tax_applies_to": "both",
-            "iterations": 3
+            "is_tech_comparison": True,
+            "final_demand": value["final_demand"],
+            "tech_change_config": {
+                "name": value["title"],
+                "description": value["description"][0] if value["description"] else value["title"],
+                "tech_change_builder": value["tech_change_builder"]
+            }
         }
     }
-}
 
 
 def run_demo(example_id, examples_config=EXAMPLES):
@@ -159,7 +72,9 @@ def run_demo(example_id, examples_config=EXAMPLES):
     Parameters:
     -----------
     example_id : int or str
-        The example number (1-6) or name to run
+        The example number (1-12) to run:
+        - 1-6: Tax policy examples
+        - 7-12: Technological change examples
     examples_config : dict
         Dictionary containing all example configurations
     """
@@ -182,25 +97,235 @@ def run_demo(example_id, examples_config=EXAMPLES):
         print(line)
     print()
     
-    # Run simulation with configured parameters
-    run_tax_policy_simulation(**config['params'])
+    # Check if this is a technological change comparison
+    if config['params'].get('is_tech_comparison', False):
+        run_technological_change_comparison(config)
+    else:
+        # Run tax policy simulation with configured parameters
+        params = config['params'].copy()
+        params.setdefault('solver_type', 'supply_curves')
+        params.setdefault('before_name', 'Before Tax Change')
+        params.setdefault('after_name', 'After Tax Change')
+        # Map consumption_distribution to demand_distribution if present
+        if 'consumption_distribution' in params:
+            params.setdefault('demand_distribution', params.pop('consumption_distribution'))
+        run_simulation(**params)
+
+
+def run_technological_change_comparison(config):
+    """
+    Run a technological change comparison using the same final demand.
+    
+    This demonstrates how to compare baseline vs. changed technology
+    while holding final demand constant to isolate the pure effect
+    of technological innovation.
+    """
+    params = config['params']
+    final_demand = np.array(params['final_demand'], dtype=float)
+    tech_config = params['tech_change_config']
+    
+    print("="*100)
+    print("TECHNOLOGICAL CHANGE COMPARISON MODE")
+    print("="*100)
+    print(f"\nThis demo compares two scenarios with THE SAME final demand:")
+    print(f"  1. Baseline (current technology)")
+    print(f"  2. {tech_config['name']}")
+    print(f"\nFinal Demand (constant): {final_demand}")
+    print(f"Total FD: {final_demand.sum():.2f}")
+    print()
+    
+    # Build baseline IO matrix
+    print("Building baseline Input-Output matrix...")
+    A_baseline, VA_baseline, isic_map = build_io_matrix(demoDB=False, loggingLevel=loggingLevel)
+    n_sectors = len(isic_map)
+    print(f"[OK] Matrix built with {n_sectors} sectors")
+    
+    # Display baseline matrix structure
+    print("\nBaseline Technical Coefficient Matrix (A):")
+    print(f"{'':>5}", end='')
+    for j in range(n_sectors):
+        print(f"{j:>8}", end='')
+    print()
+    for i in range(n_sectors):
+        print(f"{i:>3} |", end='')
+        for j in range(n_sectors):
+            print(f"{A_baseline[i,j]:>8.4f}", end='')
+        print()
+    
+    print("\nBaseline Value Added Coefficients (VA):")
+    for j in range(n_sectors):
+        print(f"  Sector {j}: {VA_baseline[j]:.4f}")
+    print()
+    
+    # Create and apply technological change using the builder function
+    print("="*100)
+    print("Defining Technological Change")
+    print("="*100)
+    tech_change = tech_config['tech_change_builder'](isic_map)
+    print(tech_change.get_summary())
+    print()
+    
+    # Apply technological change
+    print("="*100)
+    print("Applying Technological Change")
+    print("="*100)
+    A_changed, VA_changed = tech_change.apply(A_baseline, VA_baseline)
+    print("[OK] Technological change applied")
+    
+    # Show what changed in the A matrix
+    print("\nChanges in Technical Coefficients (ΔA):")
+    delta_A = A_changed - A_baseline
+    max_change = np.abs(delta_A).max()
+    if max_change > 0.0001:
+        print(f"{'':>5}", end='')
+        for j in range(n_sectors):
+            print(f"{j:>8}", end='')
+        print()
+        for i in range(n_sectors):
+            print(f"{i:>3} |", end='')
+            for j in range(n_sectors):
+                val = delta_A[i,j]
+                if abs(val) > 0.0001:
+                    print(f"{val:>+8.4f}", end='')
+                else:
+                    print(f"{'':>8}", end='')
+            print()
+    else:
+        print("  (No significant changes in A matrix)")
+    
+    print("\nChanges in Value Added Coefficients (ΔVA):")
+    delta_VA = VA_changed - VA_baseline
+    for j in range(n_sectors):
+        if abs(delta_VA[j]) > 0.0001:
+            print(f"  Sector {j}: {delta_VA[j]:+.4f} (from {VA_baseline[j]:.4f} to {VA_changed[j]:.4f})")
+    
+    print("\n" + "="*100)
+    print("Final Demand (SAME for both scenarios)")
+    print("="*100)
+    print(f"\nFinal Demand Vector: {final_demand}")
+    print(f"Total Final Demand: {final_demand.sum():.2f}")
+    
+    # Compare scenarios
+    print("\n" + "="*100)
+    print("SCENARIO COMPARISON")
+    print("="*100)
+    iterations = params.get('iterations', 1)
+    if iterations > 1:
+        print(f"\nComparing outcomes with THE SAME initial final demand over {iterations} iterations...")
+        print("This isolates the pure effect of technological change and shows how it compounds over time.")
+    else:
+        print("\nComparing outcomes with THE SAME final demand...")
+        print("This isolates the pure effect of technological change.")
+    
+    # Run unified simulation
+    tax_rate = params.get('income_tax_rate', 0.0)
+    corp_rate = params.get('corporate_tax_rate', 0.0)
+    comparison = run_simulation(
+        final_demand=final_demand,
+        A_before=A_baseline,
+        A_after=A_changed,
+        VA_before=VA_baseline,
+        VA_after=VA_changed,
+        isic_map=isic_map,
+        before_name="Baseline Technology",
+        after_name=tech_config['name'],
+        iterations=iterations,
+        demand_distribution=params.get('demand_distribution', 'proportional'),
+        income_tax_rate_before=tax_rate,
+        income_tax_rate_after=tax_rate,
+        corporate_tax_rate_before=corp_rate,
+        corporate_tax_rate_after=corp_rate,
+        income_tax_applies_to=params.get('income_tax_applies_to', 'bonusWages'),
+        consumption_proportions=params.get('consumption_proportions', None),
+        investment_proportions=params.get('investment_proportions', None),
+        government_proportions=params.get('government_proportions', None),
+        consumption_rate=params.get('consumption_rate', 1.0),
+        solver_type="leontief",
+    )
+    
+    # Additional interpretation for tech change examples
+    if comparison and iterations == 1:
+        print("\n" + "="*100)
+        print("INTERPRETATION")
+        print("="*100)
+        
+        delta_X_total = comparison['deltas']['X'].sum()
+        delta_VA = comparison['deltas']['VA']
+        
+        if delta_X_total < 0:
+            print(f"\n✓ Technology reduces total gross output by {abs(delta_X_total):.2f}")
+            print(f"  This means LESS production is needed to satisfy the SAME final demand.")
+            print(f"  The economy becomes more EFFICIENT.")
+        elif delta_X_total > 0:
+            print(f"\n✗ Technology increases total gross output by {delta_X_total:.2f}")
+            print(f"  This means MORE production is needed for the SAME final demand.")
+            print(f"  This could indicate substitution toward more input-intensive methods.")
+        else:
+            print(f"\n- No change in total gross output")
+        
+        if delta_VA > 0:
+            print(f"\n✓ Value added increases by {delta_VA:.2f}")
+            print(f"  More value is retained in the economy (less spent on intermediate inputs).")
+        elif delta_VA < 0:
+            print(f"\n✗ Value added decreases by {abs(delta_VA):.2f}")
+            print(f"  Less value is retained (more spent on intermediate inputs).")
+        
+        # Resource efficiency
+        baseline_efficiency = comparison['before']['VA'] / comparison['before']['X'].sum()
+        changed_efficiency = comparison['after']['VA'] / comparison['after']['X'].sum()
+        
+        print(f"\nResource Efficiency (VA/Gross Output):")
+        print(f"  Baseline:  {baseline_efficiency:.4f}")
+        print(f"  Changed:   {changed_efficiency:.4f}")
+        print(f"  Change:    {(changed_efficiency - baseline_efficiency):+.4f}")
+    elif comparison and iterations > 1:
+        print("\n" + "="*100)
+        print("INTERPRETATION")
+        print("="*100)
+        print(f"\nWith {iterations} iterations, we see how the technological change affects the economy")
+        print(f"over multiple periods. Each iteration's value added becomes the next period's final demand,")
+        print(f"showing whether the technology leads to sustained growth or efficiency improvements.")
+
+
+def list_examples():
+    """List all available examples with their titles."""
+    print("\n" + "="*100)
+    print("AVAILABLE EXAMPLES")
+    print("="*100)
+    
+    print("\nTax Policy Examples (1-6):")
+    print("-" * 100)
+    for i in range(1, 7):
+        if i in EXAMPLES:
+            print(f"  {i}. {EXAMPLES[i]['title']}")
+    
+    print("\nTechnological Change Examples (7-12):")
+    print("-" * 100)
+    for i in range(7, 13):
+        if i in EXAMPLES:
+            print(f"  {i}. {EXAMPLES[i]['title']}")
+    
+    print("\n" + "="*100)
 
 
 if __name__ == "__main__":
-    print("Setting up sample data...")
+    print("="*100)
+    print("INPUT-OUTPUT ECONOMIC MODELING - UNIFIED DEMO")
+    print("="*100)
+    print("\nSetting up sample data...")
     setup_data(source="data/ex2", overwrite_existing_data=True, logging_level=loggingLevel)
     print("\nData setup complete.\n")
+    
+    # Uncomment to see all available examples
+    # list_examples()
     
     # Run all examples
     # for example_num in EXAMPLES.keys():
     #     run_demo(example_num)
-
-    # print("\n" + "="*100)
-    # print("All examples completed!")
-    # print("="*100)
+    #     print("\n\n")
 
     # Run a specific example
-    example_number = 2
+    example_number = 10
     run_demo(example_number)
     
     print("\n" + "="*100)
