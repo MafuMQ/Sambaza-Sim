@@ -1081,31 +1081,42 @@ def run_simulation(
         if VA_after is None:
             VA_after = VA_before.copy()
         
-        # Level 2: Production-level changes (rebuild matrix)
+        # Level 3 (deepest): Production-level changes (cascade: productions → curves → matrix)
         if tech_change.has_production_changes():
-            print(f"\n[Production Level] Applying {len(tech_change.production_changes)} changes...")
+            print(f"\n[Level 3: Productions] Applying {len(tech_change.production_changes)} changes...")
             ptdb = ProductionsDatabase()
             scdb = SupplyCurveDatabase()
-            result = tech_change.apply_to_productions(ptdb, scdb, rebuild_matrix=True, loggingLevel=loggingLevel)
+            result = tech_change.apply_to_productions(
+                ptdb, scdb, rebuild_curves=True, rebuild_matrix=True, loggingLevel=loggingLevel
+            )
             
             if result['A_matrix'] is not None:
                 A_after = result['A_matrix']
                 VA_after = result['VA_vector']
                 isic_map = result['isic_map']
-                print(f"  [OK] Matrix rebuilt from {len(result['productions'])} modified productions")
+                print(f"  [OK] Cascade rebuild: {len(result['productions'])} productions → curves → coefficient matrix")
+            if result.get('supply_data'):
+                supply_data_after = result['supply_data']
         
-        # Level 3: Curve-level changes (rebuild supply data)
+        # Level 2: Curve-level changes (cascade: curves → matrix)
         if tech_change.has_curve_changes():
-            print(f"\n[Curve Level] Applying {len(tech_change.curve_changes)} changes...")
+            print(f"\n[Level 2: Curves] Applying {len(tech_change.curve_changes)} changes...")
+            ptdb = ProductionsDatabase()
             scdb = SupplyCurveDatabase()
-            result = tech_change.apply_to_curves(scdb, isic_map)
+            result = tech_change.apply_to_curves(
+                scdb, ptdb=ptdb, isic_map=isic_map, rebuild_matrix=True, loggingLevel=loggingLevel
+            )
             supply_data_after = result['supply_data']
-            print(f"  [OK] Supply data rebuilt: {len(result['modified_curves'])} curves modified")
+            if result['A_matrix'] is not None:
+                A_after = result['A_matrix']
+                VA_after = result['VA_vector']
+                isic_map = result['isic_map']
+            print(f"  [OK] Cascade rebuild: {len(result['modified_curves'])} curves → coefficient matrix")
         
         # Level 1: Matrix-level changes (direct A matrix modification)
         if tech_change.has_matrix_changes():
             print(f"\n[Matrix Level] Applying {len(tech_change.matrix_changes)} changes...")
-            A_after, VA_after = tech_change.apply(A_after, VA_after)
+            A_after, VA_after = tech_change.apply(A_after, VA_after, isic_map)
             print(f"  [OK] A matrix and VA coefficients updated")
         
         print(tech_change.get_summary())

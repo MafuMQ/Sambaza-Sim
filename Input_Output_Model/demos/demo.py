@@ -231,7 +231,7 @@ def run_technological_change_comparison(config):
         print("="*100)
         print("Applying Technological Change")
         print("="*100)
-        A_changed, VA_changed = tech_change.apply(A_baseline, VA_baseline)
+        A_changed, VA_changed = tech_change.apply(A_baseline, VA_baseline, isic_map)
         print("[OK] Technological change applied")
         
         # Show what changed in the A matrix

@@ -3,62 +3,51 @@ Technological Change Module for Input-Output Analysis
 ======================================================
 
 This module provides multi-level technological change modeling for Input-Output frameworks.
-Changes can be applied at three levels:
+Changes can be applied at three levels, ordered by depth:
 
 **Level 1 - Matrix Level (High Level)**:
     Direct changes to the A matrix coefficients. Fastest, no rebuilding required.
     Use for: Quick what-if analysis, sensitivity testing.
+    Rebuild chain: None
 
-**Level 2 - Productions Level (Micro Level)**:
-    Changes to underlying production records (inputs, efficiencies, value added).
-    Requires rebuilding the A matrix from modified production data.
-    Use for: Firm-level technology adoption, process improvements.
-
-**Level 3 - Curves Level (Market Level)**:
+**Level 2 - Curves Level (Market Level)**:
     Changes to supply curve tiers (capacities, prices, value added by tier).
-    Requires rebuilding supply curve data for the solver.
+    Requires rebuilding the coefficient matrix from the modified supply/flow data.
     Use for: Capacity expansion, cost structure changes, market entry/exit.
+    Rebuild chain: Curves → Coefficient Matrix
+
+**Level 3 - Productions Level (Micro Level)**:
+    Changes to underlying production records (inputs, efficiencies, value added).
+    Requires rebuilding supply curves from modified productions, then rebuilding
+    the coefficient matrix from those curves. Full cascade rebuild.
+    Use for: Firm-level technology adoption, process improvements.
+    Rebuild chain: Productions → Supply Curves → Coefficient Matrix
+
+Data Flow (deepest to shallowest):
+    Productions (firms) → Supply Curves (flow matrix) → Coefficient Matrix (A matrix)
 
 Key Concepts:
 -------------
 1. Technical Coefficients (A matrix): Amount of input i needed per unit of output j
-2. Productions: Individual production methods with input requirements and VA components
-3. Supply Curves: Tiered supply with price/capacity steps per sector
+2. Supply Curves: Tiered supply with price/capacity steps per sector (the flow matrix)
+3. Productions: Individual production methods with input requirements and VA components
 
 Example Use Cases:
 ------------------
 - Matrix Level: Reduce energy coefficients by 30% economy-wide
-- Productions Level: A specific firm adopts new machinery (better efficiency)
 - Curves Level: New capacity comes online at lower price tier
+- Productions Level: A specific firm adopts new machinery (better efficiency)
 
 Usage:
 ------
     from Input_Output_Model.demos.util.technological_change import TechnologicalChange
 
-    # === Level 1: Matrix-level change (current behavior) ===
+    # === Level 1: Matrix-level change (direct, no rebuild) ===
     tech = TechnologicalChange(name="Energy Efficiency")
     tech.add_input_change(input_sector_idx=1, change_type="multiply", value=0.70)
     A_changed, VA_changed = tech.apply(A_baseline, VA_baseline)
 
-    # === Level 2: Production-level change (requires rebuild) ===
-    tech = TechnologicalChange(name="Factory Modernization")
-    tech.add_production_change(
-        production_id=5,  # Specific production method
-        field="production_inputs",
-        input_isic="A01",
-        change_type="multiply",
-        value=0.85  # 15% reduction in this input
-    )
-    tech.add_production_efficiency_change(
-        production_id=5,
-        efficiency_type="production_material_efficiency",
-        change_type="add",
-        value=10  # +10 efficiency points
-    )
-    # Rebuild matrices from modified productions
-    A_new, VA_new, isic_map, modified_productions = tech.apply_to_productions(ptdb)
-
-    # === Level 3: Curve-level change (requires rebuild) ===
+    # === Level 2: Curve-level change (rebuilds coefficient matrix) ===
     tech = TechnologicalChange(name="Capacity Expansion")
     tech.add_curve_tier_change(
         isic="A01",
@@ -73,8 +62,27 @@ Usage:
         price=45.0,  # New tier at lower price
         position=0   # Insert at beginning (cheapest)
     )
-    # Rebuild supply data from modified curves
-    supply_data_new, modified_curves = tech.apply_to_curves(scdb, isic_map)
+    # Modify curves and rebuild coefficient matrix
+    result = tech.apply_to_curves(scdb)
+    A_new, VA_new = result['A_matrix'], result['VA_vector']
+
+    # === Level 3: Production-level change (full cascade rebuild) ===
+    tech = TechnologicalChange(name="Factory Modernization")
+    tech.add_production_input_change(
+        production_id=5,  # Specific production method
+        input_isic="A01",
+        change_type="multiply",
+        value=0.85  # 15% reduction in this input
+    )
+    tech.add_production_efficiency_change(
+        production_id=5,
+        efficiency_type="material",
+        change_type="add",
+        value=10  # +10 efficiency points
+    )
+    # Full cascade: productions → supply curves → coefficient matrix
+    result = tech.apply_to_productions(ptdb, scdb)
+    A_new, VA_new = result['A_matrix'], result['VA_vector']
 """
 
 import numpy as np
@@ -98,12 +106,14 @@ class TechnologicalChange:
     """
     Represents a technological change that can be applied at multiple levels:
     
-    1. Matrix Level: Direct changes to A matrix coefficients (fastest)
-    2. Productions Level: Changes to production records (requires matrix rebuild)
-    3. Curves Level: Changes to supply curve tiers (requires supply data rebuild)
+    1. Matrix Level: Direct changes to A matrix coefficients (fastest, no rebuild)
+    2. Curves Level: Changes to supply curve tiers (rebuilds coefficient matrix)
+    3. Productions Level: Changes to production records (rebuilds curves → coefficient matrix)
     
     You can mix changes from different levels in the same TechnologicalChange object;
-    they will be applied in order: productions -> curves -> matrix.
+    they will be applied in cascade order: productions → curves → matrix.
+    
+    Data flow: Productions → Supply Curves → Coefficient Matrix
     """
     
     def __init__(self, name: str, description: str = ""):
@@ -123,11 +133,14 @@ class TechnologicalChange:
         # Level 1: Matrix-level changes (direct A matrix modifications)
         self.matrix_changes = []
         
-        # Level 2: Production-level changes (require matrix rebuild)
+        # Level 2: Curve-level changes (require coefficient matrix rebuild)
+        self.curve_changes = []
+        
+        # Level 3: Production-level changes (require supply curve + coefficient matrix rebuild)
         self.production_changes = []
         
-        # Level 3: Curve-level changes (require supply data rebuild)
-        self.curve_changes = []
+        # ISIC mapping (set when using ISIC codes instead of indices)
+        self._isic_map = None
         
         # Backward compatibility alias
         self.changes = self.matrix_changes
@@ -137,8 +150,8 @@ class TechnologicalChange:
     # ==========================================================================
         
     def add_coefficient_change(self, 
-                               sector_idx: int, 
-                               input_sector_idx: int, 
+                               sector_idx: Union[int, str], 
+                               input_sector_idx: Union[int, str], 
                                change_type: str,
                                value: float):
         """
@@ -146,10 +159,10 @@ class TechnologicalChange:
         
         Parameters:
         -----------
-        sector_idx : int
-            Index of the producing sector (column in A matrix)
-        input_sector_idx : int
-            Index of the input sector (row in A matrix)
+        sector_idx : int or str
+            Index of the producing sector (column in A matrix) OR ISIC code
+        input_sector_idx : int or str
+            Index of the input sector (row in A matrix) OR ISIC code
         change_type : str
             Type of change: 
             - "multiply": Multiply coefficient by value (e.g., 0.8 = 20% reduction)
@@ -157,6 +170,11 @@ class TechnologicalChange:
             - "set": Set coefficient to specific value
         value : float
             The value to apply based on change_type
+            
+        Note:
+        -----
+        You can use ISIC codes (e.g., "A01") instead of numeric indices.
+        If using ISIC codes, you must provide isic_map when calling apply().
         """
         valid_types = ["multiply", "add", "set"]
         if change_type not in valid_types:
@@ -171,23 +189,28 @@ class TechnologicalChange:
         })
         
     def add_sector_change(self,
-                         sector_idx: int,
+                         sector_idx: Union[int, str],
                          change_type: str,
                          value: float,
-                         exclude_inputs: List[int] = None):
+                         exclude_inputs: List[Union[int, str]] = None):
         """
         Apply a change to ALL inputs for a given sector.
         
         Parameters:
         -----------
-        sector_idx : int
-            Index of the producing sector (column in A matrix)
+        sector_idx : int or str
+            Index of the producing sector (column in A matrix) OR ISIC code
         change_type : str
             Type of change: "multiply", "add", or "set"
         value : float
             The value to apply
-        exclude_inputs : List[int], optional
-            List of input sector indices to exclude from the change
+        exclude_inputs : List[int or str], optional
+            List of input sector indices or ISIC codes to exclude from the change
+            
+        Note:
+        -----
+        You can use ISIC codes (e.g., "A01") instead of numeric indices.
+        If using ISIC codes, you must provide isic_map when calling apply().
         """
         self.matrix_changes.append({
             'level': LEVEL_MATRIX,
@@ -199,23 +222,28 @@ class TechnologicalChange:
         })
         
     def add_input_change(self,
-                        input_sector_idx: int,
+                        input_sector_idx: Union[int, str],
                         change_type: str,
                         value: float,
-                        exclude_sectors: List[int] = None):
+                        exclude_sectors: List[Union[int, str]] = None):
         """
         Apply a change to a specific input across ALL sectors that use it.
         
         Parameters:
         -----------
-        input_sector_idx : int
-            Index of the input sector (row in A matrix)
+        input_sector_idx : int or str
+            Index of the input sector (row in A matrix) OR ISIC code
         change_type : str
             Type of change: "multiply", "add", or "set"
         value : float
             The value to apply
-        exclude_sectors : List[int], optional
-            List of producing sector indices to exclude from the change
+        exclude_sectors : List[int or str], optional
+            List of producing sector indices or ISIC codes to exclude from the change
+            
+        Note:
+        -----
+        You can use ISIC codes (e.g., "A01") instead of numeric indices.
+        If using ISIC codes, you must provide isic_map when calling apply().
         """
         self.matrix_changes.append({
             'level': LEVEL_MATRIX,
@@ -227,7 +255,8 @@ class TechnologicalChange:
         })
     
     # ==========================================================================
-    # Level 2: Production-Level Changes (Micro Level)
+    # Level 3: Production-Level Changes (Micro Level) — deepest
+    # Rebuild chain: Productions → Supply Curves → Coefficient Matrix
     # ==========================================================================
     
     def add_production_input_change(self,
@@ -382,7 +411,8 @@ class TechnologicalChange:
         })
     
     # ==========================================================================
-    # Level 3: Curve-Level Changes (Market Level)
+    # Level 2: Curve-Level Changes (Market Level)
+    # Rebuild chain: Supply Curves → Coefficient Matrix
     # ==========================================================================
     
     def add_curve_tier_change(self,
@@ -503,12 +533,47 @@ class TechnologicalChange:
     # Apply Methods
     # ==========================================================================
     
-    def apply(self, A_matrix: np.ndarray, VA_vector: np.ndarray = None) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    def set_isic_map(self, isic_map: Dict[str, int]):
+        """
+        Set the ISIC to index mapping for resolving ISIC codes.
+        
+        Parameters:
+        -----------
+        isic_map : dict
+            Mapping of ISIC codes to sector indices {"A01": 0, "A02": 1, ...}
+        """
+        self._isic_map = isic_map
+    
+    def _resolve_index(self, value: Union[int, str]) -> int:
+        """
+        Resolve a sector reference to an integer index.
+        
+        Parameters:
+        -----------
+        value : int or str
+            Either an integer index or an ISIC code
+            
+        Returns:
+        --------
+        int : The sector index
+        """
+        if isinstance(value, int):
+            return value
+        elif isinstance(value, str):
+            if self._isic_map is None:
+                raise ValueError(f"Cannot resolve ISIC code '{value}': isic_map not set. Call set_isic_map() or pass isic_map to apply().")
+            if value not in self._isic_map:
+                raise ValueError(f"ISIC code '{value}' not found in isic_map. Available: {list(self._isic_map.keys())}")
+            return self._isic_map[value]
+        else:
+            raise TypeError(f"Sector reference must be int or str, got {type(value)}")
+    
+    def apply(self, A_matrix: np.ndarray, VA_vector: np.ndarray = None, isic_map: Dict[str, int] = None) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """
         Apply matrix-level technological changes to an A matrix (and optionally VA vector).
         
-        This method only applies LEVEL 1 (matrix-level) changes. For production-level
-        or curve-level changes, use apply_to_productions() or apply_to_curves().
+        This method only applies LEVEL 1 (matrix-level) changes. For curve-level
+        or production-level changes, use apply_to_curves() or apply_to_productions().
         
         Parameters:
         -----------
@@ -517,6 +582,9 @@ class TechnologicalChange:
         VA_vector : np.ndarray, optional
             The value added coefficient vector (n,)
             If provided, will be adjusted to maintain A + VA = 1
+        isic_map : dict, optional
+            Mapping of ISIC codes to sector indices {"A01": 0, "A02": 1, ...}
+            Required if any changes use ISIC codes instead of numeric indices
         
         Returns:
         --------
@@ -525,6 +593,10 @@ class TechnologicalChange:
         VA_new : np.ndarray or None
             Modified VA vector (if VA_vector was provided)
         """
+        # Store isic_map if provided
+        if isic_map is not None:
+            self._isic_map = isic_map
+        
         A_new = A_matrix.copy()
         n = A_new.shape[0]
         
@@ -536,21 +608,29 @@ class TechnologicalChange:
             change_type = change['change_type']
             value = change['value']
             
+            # Resolve ISIC codes to indices if needed
+            if sector_idx != 'all':
+                sector_idx = self._resolve_index(sector_idx)
+            if input_sector_idx != 'all':
+                input_sector_idx = self._resolve_index(input_sector_idx)
+            
+            # Resolve exclude lists
+            exclude_sectors = [self._resolve_index(x) for x in change.get('exclude_sectors', [])]
+            exclude_inputs = [self._resolve_index(x) for x in change.get('exclude_inputs', [])]
+            
             # Determine which cells to modify
             if sector_idx == 'all' and input_sector_idx != 'all':
                 # Apply to entire row (one input across all sectors)
-                exclude = change.get('exclude_sectors', [])
                 for j in range(n):
-                    if j not in exclude:
+                    if j not in exclude_sectors:
                         A_new[input_sector_idx, j] = self._apply_change(
                             A_new[input_sector_idx, j], change_type, value
                         )
                         
             elif sector_idx != 'all' and input_sector_idx == 'all':
                 # Apply to entire column (all inputs for one sector)
-                exclude = change.get('exclude_inputs', [])
                 for i in range(n):
-                    if i not in exclude:
+                    if i not in exclude_inputs:
                         A_new[i, sector_idx] = self._apply_change(
                             A_new[i, sector_idx], change_type, value
                         )
@@ -579,12 +659,18 @@ class TechnologicalChange:
         logger.info(f"Technological change '{self.name}' applied successfully")
         return A_new, VA_new
     
-    def apply_to_productions(self, ptdb, scdb=None, rebuild_matrix: bool = True,
+    def apply_to_productions(self, ptdb, scdb=None, rebuild_curves: bool = True,
+                              rebuild_matrix: bool = True,
                               loggingLevel=logging.WARNING) -> Dict[str, Any]:
         """
         Apply production-level changes to a ProductionsDatabase.
         
-        This modifies production records and optionally rebuilds the IO matrix.
+        Level 3 rebuild chain: Productions → Supply Curves → Coefficient Matrix
+        
+        This modifies production records and cascades the rebuild:
+        1. Modified productions are used to rebuild supply curves
+        2. Modified supply curves are used to rebuild the coefficient matrix
+        
         Changes are applied in-memory; the database is NOT permanently modified.
         
         Parameters:
@@ -592,16 +678,20 @@ class TechnologicalChange:
         ptdb : ProductionsDatabase
             The productions database to read from
         scdb : SupplyCurveDatabase, optional
-            Supply curve database (required if rebuild_matrix=True)
+            Supply curve database (required for rebuild)
+        rebuild_curves : bool
+            Whether to rebuild supply curves from modified productions (default: True)
         rebuild_matrix : bool
-            Whether to rebuild the A matrix after applying changes (default: True)
+            Whether to rebuild the coefficient matrix from rebuilt curves (default: True)
+            Only applies if rebuild_curves is also True.
         loggingLevel : int
-            Logging level for matrix build operations
+            Logging level for rebuild operations
         
         Returns:
         --------
         dict with:
             'productions': dict mapping production_id -> modified production data
+            'supply_data': rebuilt supply curve data (if rebuild_curves=True)
             'A_matrix': rebuilt A matrix (if rebuild_matrix=True)
             'VA_vector': rebuilt VA vector (if rebuild_matrix=True)
             'isic_map': sector index mapping (if rebuild_matrix=True)
@@ -683,31 +773,187 @@ class TechnologicalChange:
             prod_data['total_inputs_cost'] = sum(float(v) for v in prod_data['production_inputs'].values())
             prod_data['total_value_added'] = sum(float(v) for v in prod_data['production_added_values'].values())
         
-        result = {'productions': modified_productions, 'A_matrix': None, 'VA_vector': None, 'isic_map': None}
+        result = {
+            'productions': modified_productions, 
+            'supply_data': None,
+            'A_matrix': None, 
+            'VA_vector': None, 
+            'isic_map': None
+        }
         
-        # Rebuild matrix if requested
-        if rebuild_matrix:
-            result.update(self._rebuild_matrix_from_productions(ptdb, scdb, modified_productions, loggingLevel))
+        # Cascade rebuild: Productions → Supply Curves → Coefficient Matrix
+        if rebuild_curves:
+            curves_result = self._rebuild_curves_from_productions(ptdb, scdb, modified_productions, loggingLevel)
+            result['supply_data'] = curves_result.get('supply_data')
+            
+            if rebuild_matrix:
+                # Rebuild coefficient matrix from the rebuilt supply curves
+                matrix_result = self._rebuild_matrix_from_curves(
+                    scdb, ptdb, curves_result.get('supply_data', {}), loggingLevel
+                )
+                result.update(matrix_result)
+                logger.info(f"Cascade rebuild complete: productions → curves → coefficient matrix")
         
         logger.info(f"Production-level changes applied: {len(modified_productions)} productions modified")
         return result
     
-    def _rebuild_matrix_from_productions(self, ptdb, scdb, modified_productions: Dict, 
-                                          loggingLevel=logging.WARNING) -> Dict[str, Any]:
+    def _rebuild_curves_from_productions(self, ptdb, scdb, modified_productions: Dict,
+                                           loggingLevel=logging.WARNING) -> Dict[str, Any]:
         """
-        Rebuild the A matrix and VA vector from production data, incorporating modifications.
+        Rebuild supply curve data from production records, incorporating modifications.
         
-        This creates a new matrix where modified productions are used instead of database values.
+        This is the first step of the Level 3 cascade:
+        Productions → **Supply Curves** → Coefficient Matrix
+        
+        Matches the existing project's curve builder structure:
+        - Sorts productions by merit order (cheapest price first)
+        - Creates three parallel tier lists: price, total_inputs_cost, total_value_added
+        - Each tier: {'cap': x, 'price': y}
+        
+        Parameters:
+        -----------
+        ptdb : ProductionsDatabase
+            The productions database
+        scdb : SupplyCurveDatabase
+            The supply curve database (for structure/ordering)
+        modified_productions : dict
+            Mapping of production_id -> modified production data
+        loggingLevel : int
+            Logging level
+        
+        Returns:
+        --------
+        dict with:
+            'supply_data': dict mapping ISIC -> curve structure matching existing format
         """
-        # Need to import here to avoid circular imports
         from Input_Output_Model.models.entities.SupplyCurve import SupplyCurveDatabase
         
         if scdb is None:
             scdb = SupplyCurveDatabase()
         
-        # Get supply curves to determine matrix structure
+        # Get supply curves to determine structure
         supply_curves = scdb.get_all_supply_curves()
         sorted_curves = sorted(supply_curves, key=lambda x: x.isic)
+        
+        supply_data = {}
+        
+        for curve in sorted_curves:
+            isic = curve.isic
+            
+            # Get all productions for this good
+            prods = ptdb.get_all_productions_by_good(int(curve.id_number))
+            if not prods:
+                # No productions — use empty tiers
+                supply_data[isic] = {
+                    "price": {"tiers": []},
+                    "total_inputs_cost": {"tiers": []},
+                    "total_value_added": {"tiers": []}
+                }
+                continue
+            
+            # Build function dicts for each production (modified or original)
+            function_dicts = []
+            for p in prods:
+                if p.id in modified_productions:
+                    # Use modified production data
+                    pd = modified_productions[p.id]
+                    func_dict = {
+                        'cap': float(p.production_quantity) if p.production_quantity else -1,
+                        'price': float(pd['price']),
+                        'total_inputs_cost': float(pd['total_inputs_cost']),
+                        'total_value_added': float(pd['total_value_added']),
+                    }
+                else:
+                    # Use original production data
+                    func_dict = {
+                        'cap': float(p.production_quantity) if p.production_quantity else -1,
+                        'price': float(p.price) if p.price else 0.0,
+                        'total_inputs_cost': float(p.total_inputs_cost) if p.total_inputs_cost else 0.0,
+                        'total_value_added': float(p.total_value_added) if p.total_value_added else 0.0,
+                    }
+                function_dicts.append(func_dict)
+            
+            # Sort by price (merit order - cheapest first)
+            sorted_prods = sorted(function_dicts, key=lambda x: x['price'])
+            
+            # Build the three parallel tier lists (matching existing format)
+            price_tiers = []
+            input_cost_tiers = []
+            value_added_tiers = []
+            
+            for func_dict in sorted_prods:
+                cap = func_dict['cap']
+                
+                price_tiers.append({
+                    "cap": cap,
+                    "price": func_dict['price']
+                })
+                
+                input_cost_tiers.append({
+                    "cap": cap,
+                    "price": func_dict['total_inputs_cost']
+                })
+                
+                value_added_tiers.append({
+                    "cap": cap,
+                    "price": func_dict['total_value_added']
+                })
+            
+            # Store in the format matching existing curve structure
+            supply_data[isic] = {
+                "price": {"tiers": price_tiers},
+                "total_inputs_cost": {"tiers": input_cost_tiers},
+                "total_value_added": {"tiers": value_added_tiers}
+            }
+        
+        logger.info(f"Supply curves rebuilt from productions: {len(supply_data)} goods")
+        return {'supply_data': supply_data}
+    
+    def _rebuild_matrix_from_curves(self, scdb, ptdb, supply_data: Dict,
+                                     loggingLevel=logging.WARNING) -> Dict[str, Any]:
+        """
+        Rebuild the A matrix and VA vector from supply curve / flow data.
+        
+        This is the final step of the rebuild cascade:
+        Productions → Supply Curves → **Coefficient Matrix**
+        
+        Key insight: Supply curves store aggregate costs (price, total_inputs_cost, 
+        total_value_added) but NOT the detailed input breakdown. The input breakdown 
+        must be fetched from the productions database.
+        
+        Algorithm:
+        1. For each good (output ISIC), find cheapest tier from curves
+        2. Fetch that production's detailed input breakdown from productions database
+        3. Calculate input coefficients: input_cost / output_price
+        4. Build coefficient matrix A where A[input_row, output_col] = coefficient
+        
+        Parameters:
+        -----------
+        scdb : SupplyCurveDatabase
+            The supply curve database (for structure)
+        ptdb : ProductionsDatabase
+            Productions database  (required for detailed input coefficients)
+        supply_data : dict
+            Mapping of ISIC -> curve structure from supply curves or rebuild
+            Format: {"price": {"tiers": [...]}, "total_inputs_cost": {"tiers": [...]}, ...}
+        loggingLevel : int
+            Logging level
+        
+        Returns:
+        --------
+        dict with:
+            'A_matrix': rebuilt coefficient matrix (n x n)
+            'VA_vector': rebuilt VA vector (n,)
+            'isic_map': ISIC -> index mapping
+        """
+        from Input_Output_Model.models.entities.SupplyCurve import SupplyCurveDatabase
+        
+        if scdb is None:
+            scdb = SupplyCurveDatabase()
+        
+        # Get supply curves for structure ordering
+        all_curves = scdb.get_all_supply_curves()
+        sorted_curves = sorted(all_curves, key=lambda x: x.isic)
         
         n = len(sorted_curves)
         isic_map = {curve.isic: i for i, curve in enumerate(sorted_curves)}
@@ -716,75 +962,102 @@ class TechnologicalChange:
         A_mon = np.zeros((n, n))
         VA_mon = np.zeros(n)
         
-        # Fill matrix from productions (using modifications where applicable)
-        for output_good in sorted_curves:
-            col_idx = isic_map[output_good.isic]
+        for curve in sorted_curves:
+            isic = curve.isic
+            col_idx = isic_map[isic]
             
-            # Get productions for this good
-            prods = ptdb.get_all_productions_by_good(int(output_good.id_number))
+            # Get curve data for this good from supply_data
+            curve_data = supply_data.get(isic)
+            if not curve_data:
+                continue
+            
+            # Extract price tiers (cheapest first due to merit order sorting)
+            if isinstance(curve_data, dict) and 'price' in curve_data:
+                price_tiers = curve_data['price'].get('tiers', [])
+                va_tiers = curve_data.get('total_value_added', {}).get('tiers', [])
+            else:
+                # Fallback for other formats
+                price_tiers = curve_data if isinstance(curve_data, list) else []
+                va_tiers = []
+            
+            if not price_tiers:
+                continue
+            
+            # Use the cheapest tier (first tier)
+            cheapest_tier = price_tiers[0]
+            output_price = cheapest_tier.get('price', 0.0)
+            
+            if output_price <= 0:
+                output_price = 1.0
+            
+            # Get VA from tiers
+            if va_tiers:
+                va_value = va_tiers[0].get('price', 0.0)  # 'price' field stores the VA value
+                VA_mon[col_idx] = float(va_value) / output_price
+            
+            # Get detailed input breakdown from productions database
+            # (Supply curves don't store this — only aggregate costs)
+            if ptdb is None:
+                continue
+            
+            prods = ptdb.get_all_productions_by_good(int(curve.id_number))
             if not prods:
                 continue
             
-            # Find the cheapest production (may be modified)
-            best_prod = None
-            best_price = float('inf')
-            
+            # Find the production matching the cheapest price
+            matching_prod = None
+            min_price_diff = float('inf')
             for p in prods:
-                # Check if this production was modified
-                if p.id in modified_productions:
-                    prod_data = modified_productions[p.id]
-                    price = prod_data['price']
-                else:
-                    price = float(p.price) if p.price else float('inf')
-                
-                if price < best_price:
-                    best_price = price
-                    best_prod = p
+                p_price = float(p.price) if p.price else 0.0
+                price_diff = abs(p_price - output_price)
+                if price_diff < min_price_diff:
+                    min_price_diff = price_diff
+                    matching_prod = p
             
-            if best_prod is None:
+            if not matching_prod or not matching_prod.production_inputs:
                 continue
             
-            # Use modified data if available, otherwise use original
-            if best_prod.id in modified_productions:
-                prod_data = modified_productions[best_prod.id]
-                output_price = prod_data['price'] if prod_data['price'] > 0 else 1.0
-                inputs = prod_data['production_inputs']
-                total_va = prod_data['total_value_added']
-            else:
-                output_price = float(best_prod.price) if best_prod.price and float(best_prod.price) > 0 else 1.0
-                inputs = best_prod.production_inputs or {}
-                total_va = float(best_prod.total_value_added) if best_prod.total_value_added else 0.0
-            
-            # Fill intermediate input coefficients
-            for input_isic, input_cost in inputs.items():
+            # Build the coefficient column from this production's inputs
+            for input_isic, input_cost in matching_prod.production_inputs.items():
                 if input_isic in isic_map:
                     row_idx = isic_map[input_isic]
                     A_mon[row_idx, col_idx] = float(input_cost) / output_price
-            
-            # Fill VA coefficient
-            VA_mon[col_idx] = total_va / output_price
         
+        logger.info(f"Coefficient matrix rebuilt from supply curves: {n}x{n}")
         return {'A_matrix': A_mon, 'VA_vector': VA_mon, 'isic_map': isic_map}
     
-    def apply_to_curves(self, scdb, isic_map: Dict[str, int] = None) -> Dict[str, Any]:
+    def apply_to_curves(self, scdb, ptdb=None, isic_map: Dict[str, int] = None,
+                         rebuild_matrix: bool = True,
+                         loggingLevel=logging.WARNING) -> Dict[str, Any]:
         """
-        Apply curve-level changes to supply curve data.
+        Apply curve-level changes to supply curve data and rebuild the coefficient matrix.
         
-        This modifies supply curve tiers and returns the modified supply data
-        for use with DynamicEquilibriumSolver.
+        Level 2 rebuild chain: Curves → Coefficient Matrix
+        
+        This modifies supply curve tiers and then rebuilds the A matrix and VA vector
+        from the modified flow data.
         
         Parameters:
         -----------
         scdb : SupplyCurveDatabase
             The supply curve database to read from
+        ptdb : ProductionsDatabase, optional
+            Productions database (required if rebuild_matrix=True)
         isic_map : dict, optional
             Mapping of ISIC codes to sector indices
+        rebuild_matrix : bool
+            Whether to rebuild A matrix from modified curves (default: True)
+        loggingLevel : int
+            Logging level for matrix build operations
         
         Returns:
         --------
         dict with:
             'supply_data': dict mapping ISIC -> modified tier list
             'modified_curves': dict of modified curve data
+            'A_matrix': rebuilt coefficient matrix (if rebuild_matrix=True)
+            'VA_vector': rebuilt VA vector (if rebuild_matrix=True)
+            'isic_map': sector index mapping (if rebuild_matrix=True)
         """
         if not self.curve_changes:
             logger.warning(f"No curve-level changes to apply for '{self.name}'")
@@ -801,35 +1074,58 @@ class TechnologicalChange:
         
         for curve in all_curves:
             curve_by_isic[curve.isic] = curve
-            # Parse price/cap tiers from JSON
-            if curve.price and curve.total_inputs_cost:
-                # Construct tiers from JSON arrays
-                prices = curve.price if isinstance(curve.price, list) else [curve.price]
-                caps = curve.total_inputs_cost if isinstance(curve.total_inputs_cost, list) else [curve.total_inputs_cost]
-                va = curve.total_value_added if isinstance(curve.total_value_added, list) else [curve.total_value_added or 0]
-                
+            
+            # Parse tiers from the supply curve data
+            # Data format: curve.price is a list of {'cap': x, 'price': y} dicts
+            # curve.total_inputs_cost is a parallel list of {'cap': x, 'price': y} (input costs)
+            # curve.total_value_added is a parallel list of {'cap': x, 'price': y} (VA amounts)
+            price_data = curve.price if isinstance(curve.price, list) else []
+            ic_data = curve.total_inputs_cost if isinstance(curve.total_inputs_cost, list) else []
+            va_data = curve.total_value_added if isinstance(curve.total_value_added, list) else []
+            
+            if price_data:
                 tiers = []
-                for i in range(len(prices)):
-                    tier = {
-                        'price': float(prices[i]) if i < len(prices) else float(prices[-1]),
-                        'cap': float(caps[i]) if i < len(caps) else -1,
-                    }
-                    # Add VA components if available
+                for i, entry in enumerate(price_data):
+                    if isinstance(entry, dict):
+                        # Standard format: {'cap': x, 'price': y}
+                        tier = {
+                            'price': float(entry.get('price', 0)),
+                            'cap': float(entry.get('cap', -1)),
+                        }
+                    else:
+                        # Fallback: plain number
+                        tier = {
+                            'price': float(entry),
+                            'cap': -1,
+                        }
+                    
+                    # Add input cost data if available
+                    if i < len(ic_data):
+                        ic_entry = ic_data[i]
+                        if isinstance(ic_entry, dict):
+                            tier['total_inputs_cost'] = float(ic_entry.get('price', 0))
+                        else:
+                            tier['total_inputs_cost'] = float(ic_entry)
+                    
+                    # Add VA data if available
+                    if i < len(va_data):
+                        va_entry = va_data[i]
+                        if isinstance(va_entry, dict):
+                            tier['total_va'] = float(va_entry.get('price', 0))
+                        else:
+                            tier['total_va'] = float(va_entry)
+                    
+                    # Add VA component breakdown if available
                     if curve.production_added_values:
-                        va_data = curve.production_added_values
-                        if isinstance(va_data, list) and i < len(va_data):
-                            tier.update(va_data[i])
-                        elif isinstance(va_data, dict):
-                            tier.update(va_data)
+                        pav = curve.production_added_values
+                        if isinstance(pav, list) and i < len(pav):
+                            tier.update(pav[i])
+                        elif isinstance(pav, dict):
+                            tier.update(pav)
+                    
                     tiers.append(tier)
                 
                 supply_data[curve.isic] = tiers
-            elif curve.price:
-                # Single tier
-                supply_data[curve.isic] = [{
-                    'price': float(curve.price) if not isinstance(curve.price, list) else float(curve.price[0]),
-                    'cap': -1  # Unlimited
-                }]
         
         # Apply changes
         modified_curves = set()
@@ -884,7 +1180,22 @@ class TechnologicalChange:
                         tier[field] = self._apply_change(old_val, change['change_type'], change['value'])
         
         logger.info(f"Curve-level changes applied: {len(modified_curves)} curves modified")
-        return {'supply_data': supply_data, 'modified_curves': {isic: supply_data[isic] for isic in modified_curves}}
+        
+        result = {
+            'supply_data': supply_data, 
+            'modified_curves': {isic: supply_data[isic] for isic in modified_curves},
+            'A_matrix': None,
+            'VA_vector': None,
+            'isic_map': None
+        }
+        
+        # Rebuild coefficient matrix from modified supply curves
+        if rebuild_matrix:
+            matrix_result = self._rebuild_matrix_from_curves(scdb, ptdb, supply_data, loggingLevel)
+            result.update(matrix_result)
+            logger.info(f"Coefficient matrix rebuilt from modified supply curves")
+        
+        return result
     
     def has_production_changes(self) -> bool:
         """Check if there are any production-level changes."""
@@ -899,14 +1210,14 @@ class TechnologicalChange:
         return len(self.matrix_changes) > 0
     
     def get_change_levels(self) -> List[str]:
-        """Return list of levels that have changes defined."""
+        """Return list of levels that have changes defined (deepest first)."""
         levels = []
-        if self.has_matrix_changes():
-            levels.append(LEVEL_MATRIX)
         if self.has_production_changes():
             levels.append(LEVEL_PRODUCTION)
         if self.has_curve_changes():
             levels.append(LEVEL_CURVE)
+        if self.has_matrix_changes():
+            levels.append(LEVEL_MATRIX)
         return levels
     
     def _apply_change(self, old_value: float, change_type: str, value: float) -> float:
@@ -946,9 +1257,9 @@ class TechnologicalChange:
                 else:
                     summary.append(f"  {i}. Sector [{sector}], Input [{input_s}]: {ctype} by {val}")
         
-        # Production-level changes
+        # Production-level changes (Level 3 - deepest)
         if self.production_changes:
-            summary.append(f"\n--- Level 2: Production Changes ({len(self.production_changes)}) ---")
+            summary.append(f"\n--- Level 3: Production Changes ({len(self.production_changes)}) ---")
             for i, change in enumerate(self.production_changes, 1):
                 prod_id = change['production_id']
                 field = change['field']
@@ -964,9 +1275,9 @@ class TechnologicalChange:
                 else:
                     summary.append(f"  {i}. Production [{prod_id}] {field}: {ctype} by {val}")
         
-        # Curve-level changes
+        # Curve-level changes (Level 2)
         if self.curve_changes:
-            summary.append(f"\n--- Level 3: Curve Changes ({len(self.curve_changes)}) ---")
+            summary.append(f"\n--- Level 2: Curve Changes ({len(self.curve_changes)}) ---")
             for i, change in enumerate(self.curve_changes, 1):
                 isic = change['isic']
                 action = change['action']
@@ -990,8 +1301,6 @@ class TechnologicalChange:
                     ctype = change['change_type']
                     val = change['value']
                     summary.append(f"  {i}. Curve [{isic}] all tiers {field}: {ctype} by {val}")
-        
-        return "\n".join(summary)
         
         return "\n".join(summary)
 

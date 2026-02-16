@@ -16,9 +16,14 @@ GOALS
 1. Basic production curves, based on demand
 2. Adjustible tax
 3. Final Demand depends on VA after 1st iteration
-4. Applying technological change
+4. Applying technological change (no savings)
+    1. Gov Investment (for now, lets start on gov driven investment, where gov picks inv from list)
+    2. Corporate Investment
+    a. Invest into single thing
+    b. Invest into alot of things/Index
+    c. Invest into self
 5. Investment which applies technological change, and uses up saving, we see the return ratio of that investment
-6. Debt-Tracking
+6. Savings & Debt-Tracking
 7. Time is money so rate should also be a factor.
 8. Diminishing returns on investments
 9. Rank the investments
