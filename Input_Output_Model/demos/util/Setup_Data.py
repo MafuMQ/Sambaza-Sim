@@ -4,6 +4,7 @@ from Input_Output_Model.util.Evaluators import *
 from Input_Output_Model.models.entities.Good import GoodsDatabase
 from Input_Output_Model.models.entities.SupplyCurve import SupplyCurveDatabase
 from Input_Output_Model.models.entities.Production import ProductionsDatabase
+from Input_Output_Model.models.entities.TechChange import TechChangeDatabase
 import random
 from pathlib import Path
 import time
@@ -171,6 +172,52 @@ def assign_production_inputs(for_custom_taxes=False):
     
     logger.info(f"Updated {updated_count} regular productions, skipped {import_count} IMPORT productions")
 
+def load_tech_changes_if_available(source_dir: str) -> int:
+    """
+    Load tech change configurations from CSV files if they exist.
+    Checks both the source_dir and the parent 'data/' directory.
+    
+    Parameters:
+    -----------
+    source_dir : str
+        Source directory containing CSV files (e.g., "data/ex2")
+    
+    Returns:
+    --------
+    int : Number of tech changes loaded
+    """
+    from Input_Output_Model.demos.configs.load_tech_changes import load_tech_changes_from_csv
+    
+    source_path = Path(source_dir)
+    
+    # Check in source directory first
+    tax_policy_csv = source_path / "tax_policies.csv"
+    tech_change_csv = source_path / "tech_changes.csv"
+    
+    # Fallback to parent data/ directory with alternative names
+    if not tax_policy_csv.exists():
+        tax_policy_csv = Path("data") / "tax_policy_examples.csv"
+    if not tech_change_csv.exists():
+        tech_change_csv = Path("data") / "tech_change_examples.csv"
+    
+    # Check if either CSV exists
+    if not tax_policy_csv.exists() and not tech_change_csv.exists():
+        logger.info("No tech change CSV files found, skipping tech change loading")
+        return 0
+    
+    try:
+        count = load_tech_changes_from_csv(
+            tax_policy_csv=str(tax_policy_csv) if tax_policy_csv.exists() else None,
+            tech_change_csv=str(tech_change_csv) if tech_change_csv.exists() else None,
+            database_url="sqlite:///data.db",
+            clear_existing=True
+        )
+        logger.info(f"Loaded {count} tech change configurations")
+        return count
+    except Exception as e:
+        logger.error(f"Failed to load tech changes: {e}")
+        return 0
+
 def handle_existing_db_files(do_what="remove", remove_what=["data.db", "dataDEMO.db"]):
     repo_root = Path(__file__).resolve().parents[3]  # go up from Input_Output/demos/util -> repo root
     for fname in remove_what:
@@ -247,7 +294,7 @@ def load_csv_data(csv_path):
     pdb = ProductionsDatabase()
     
     # Load goods
-    print("\n[1/3] Loading goods from CSV...")
+    print("\n[1/4] Loading goods from CSV...")
     goods_count = 0
     with open(goods_csv, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -268,7 +315,7 @@ def load_csv_data(csv_path):
     logger.info(f"Loaded {goods_count} goods from CSV")
     
     # Load productions
-    print("\n[2/3] Loading productions from CSV...")
+    print("\n[2/4] Loading productions from CSV...")
     productions_count = 0
     with open(productions_csv, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -294,11 +341,17 @@ def load_csv_data(csv_path):
     logger.info(f"Loaded {productions_count} productions from CSV")
     
     # Evaluate the loaded data
-    print("\n[3/3] Evaluating loaded data...")
+    print("\n[3/4] Evaluating loaded data...")
     evaluate_simple_data()
+    
+    # Load tech changes (if CSV files exist)
+    print("\n[4/4] Loading tech change configurations...")
+    tech_changes_loaded = load_tech_changes_if_available(csv_path)
     
     print("\n" + "="*70)
     print(f"Successfully loaded {goods_count} goods and {productions_count} productions!")
+    if tech_changes_loaded > 0:
+        print(f"Successfully loaded {tech_changes_loaded} tech change configurations!")
     print("="*70)
 
 def setup_data(source=None, overwrite_existing_data=False, for_custom_taxes=False, logging_level=logging.INFO):

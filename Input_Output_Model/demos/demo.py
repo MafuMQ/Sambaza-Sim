@@ -8,7 +8,6 @@ from Input_Output_Model.demos.util.Setup_Data import setup_data
 from Input_Output_Model.demos.util.simulation import run_simulation
 from Input_Output_Model.demos.util.technological_change import TechnologicalChange
 from Input_Output_Model.util.Evaluators import build_io_matrix
-from Input_Output_Model.demos.configs import TAX_POLICY_EXAMPLES, TECH_CHANGE_EXAMPLES
 
 loggingLevel = logging.WARNING
 logging.basicConfig(level=loggingLevel)
@@ -27,13 +26,16 @@ including:
    - Demand shocks and spillover effects
    - Differentiated C/I/G distributions
 
-2. Technological Change Analysis (Examples 7-12):
+2. Technological Change Analysis (Examples 7-15):
    - Energy efficiency improvements
    - Productivity gains
    - Automation and capital-labor substitution
    - Material efficiency and green transitions
+   - Multi-level production changes
+   - Combined technology + tax policy scenarios
 
 Key Features:
+- Examples loaded from database (CSV → SQLite → Runtime)
 - Value Added (VA) = Final Demand (FD) identity maintained
 - Circular flow: VA from period t becomes C+I+G in period t+1
 - Multiple demand specification methods
@@ -41,59 +43,32 @@ Key Features:
 - Comprehensive output displays with iteration tracking
 """
 
-# Merge all examples into a single dictionary with renumbered tech change examples
-EXAMPLES = {}
-
-# Add tax policy examples (1-6)
-for key, value in TAX_POLICY_EXAMPLES.items():
-    EXAMPLES[key] = value
-
-# Add tech change examples (7-15, including combined tech+tax example)
-for key, value in TECH_CHANGE_EXAMPLES.items():
-    example_config = {
-        "title": value["title"],
-        "description": value["description"],
-        "params": {
-            "is_tech_comparison": True,
-            "final_demand": value["final_demand"],
-            "tech_change_config": {
-                "name": value["title"],
-                "description": value["description"][0] if value["description"] else value["title"],
-                "tech_change_builder": value["tech_change_builder"]
-            }
-        }
-    }
-    # Pass through multi-level and solver_type flags
-    if value.get("use_multi_level"):
-        example_config["params"]["use_multi_level"] = True
-    if value.get("solver_type"):
-        example_config["params"]["solver_type"] = value["solver_type"]
-    
-    # Pass through tax policy parameters if present (for combined examples)
-    tax_params = ["income_tax_rate_before", "income_tax_rate_after", 
-                  "corporate_tax_rate_before", "corporate_tax_rate_after",
-                  "income_tax_applies_to", "iterations",
-                  "consumption_proportions", "investment_proportions", "government_proportions"]
-    for param in tax_params:
-        if param in value:
-            example_config["params"][param] = value[param]
-    
-    EXAMPLES[key + 6] = example_config
+def load_examples_from_database(database_url: str = "sqlite:///data.db"):
+    """Load examples from database instead of hardcoded Python dicts."""
+    from Input_Output_Model.demos.configs.load_tech_changes import rebuild_examples_dict_from_db
+    return rebuild_examples_dict_from_db(database_url=database_url)
 
 
-def run_demo(example_id, examples_config=EXAMPLES):
+def run_demo(example_id, examples_config=None, database_url: str = "sqlite:///data.db"):
     """
     Run a specific demo example.
     
     Parameters:
     -----------
     example_id : int or str
-        The example number (1-12) to run:
+        The example number (1-15) to run:
         - 1-6: Tax policy examples
-        - 7-12: Technological change examples
-    examples_config : dict
-        Dictionary containing all example configurations
+        - 7-12: Tech change examples (matrix level)
+        - 13-15: Tech change examples (multi-level and combined)
+    examples_config : dict, optional
+        Dictionary containing all example configurations.
+        If None, will load from database.
+    database_url : str
+        SQLite database URL for loading examples
     """
+    # Load examples from database if not provided
+    if examples_config is None:
+        examples_config = load_examples_from_database(database_url)
     # Convert to int if string number provided
     if isinstance(example_id, str) and example_id.isdigit():
         example_id = int(example_id)
@@ -353,58 +328,82 @@ def run_technological_change_comparison(config):
         print(f"showing whether the technology leads to sustained growth or efficiency improvements.")
 
 
-def list_examples():
-    """List all available examples with their titles."""
+def list_examples(database_url: str = "sqlite:///data.db"):
+    """List all available examples with their titles from database."""
+    from Input_Output_Model.models.entities.TechChange import TechChangeDatabase
+    
+    db = TechChangeDatabase(database_url=database_url)
+    tech_changes = db.get_all_tech_changes()
+    
+    if not tech_changes:
+        print("\n" + "="*100)
+        print("NO EXAMPLES FOUND IN DATABASE")
+        print("="*100)
+        print("\nPlease run setup_data() to load examples from CSV files.")
+        return
+    
     print("\n" + "="*100)
-    print("AVAILABLE EXAMPLES")
+    print("AVAILABLE EXAMPLES FROM DATABASE")
     print("="*100)
     
-    print("\nTax Policy Examples (1-6):")
-    print("-" * 100)
-    for i in range(1, 7):
-        if i in EXAMPLES:
-            print(f"  {i}. {EXAMPLES[i]['title']}")
+    # Group by type
+    tax_policy = [tc for tc in tech_changes if tc.change_type == 'tax_policy']
+    tech_change = [tc for tc in tech_changes if tc.change_type == 'tech_change']
     
-    print("\nTechnological Change Examples - Matrix Level (7-12):")
-    print("-" * 100)
-    for i in range(7, 13):
-        if i in EXAMPLES:
-            print(f"  {i}. {EXAMPLES[i]['title']}")
+    if tax_policy:
+        print("\nTax Policy Examples:")
+        print("-" * 100)
+        for tc in tax_policy:
+            print(f"  {tc.example_id}. {tc.title}")
     
-    print("\nTechnological Change Examples - Multi-Level (13-14):")
-    print("-" * 100)
-    for i in range(13, 15):
-        if i in EXAMPLES:
-            print(f"  {i}. {EXAMPLES[i]['title']}")
-    
-    print("\nCombined Technology + Tax Policy (15):")
-    print("-" * 100)
-    if 15 in EXAMPLES:
-        print(f"  15. {EXAMPLES[15]['title']}")
+    if tech_change:
+        print("\nTechnological Change Examples:")
+        print("-" * 100)
+        for tc in tech_change:
+            print(f"  {tc.example_id}. {tc.title}")
+            if tc.use_multi_level:
+                print(f"      (Multi-Level)")
     
     print("\n" + "="*100)
 
 
 if __name__ == "__main__":
+    from pathlib import Path
+    
     print("="*100)
     print("INPUT-OUTPUT ECONOMIC MODELING - UNIFIED DEMO")
     print("="*100)
-    print("\nSetting up sample data...")
-    setup_data(source="data/ex2", overwrite_existing_data=True, logging_level=loggingLevel)
-    print("\nData setup complete.\n")
     
-    # Uncomment to see all available examples
-    # list_examples()
+    # Check if database exists, if not setup data
+    db_file = Path("data.db")
+    if not db_file.exists():
+        print("\nDatabase not found. Setting up data...")
+        setup_data(source="data/ex2", overwrite_existing_data=True, logging_level=loggingLevel)
+        print("\nData setup complete.\n")
+    else:
+        print("\nUsing existing database.\n")
     
-    # Run all examples
-    # for example_num in EXAMPLES.keys():
-    #     run_demo(example_num)
-    #     print("\n\n")
-
-    # Run a specific example
-    example_number = 13
-    run_demo(example_number)
+    # List all available examples
+    list_examples()
     
-    print("\n" + "="*100)
-    print(f'Example {example_number} completed!')
-    print("="*100)
+    # Run specific example(s)
+    if len(sys.argv) > 1:
+        try:
+            example_number = int(sys.argv[1])
+            print(f"\nRunning example {example_number}...\n")
+            run_demo(example_number)
+            print("\n" + "="*100)
+            print(f'Example {example_number} completed!')
+            print("="*100)
+        except ValueError:
+            print(f"Invalid example number: {sys.argv[1]}")
+    else:
+        # Default: run example 7
+        example_number = 7
+        print(f"\nRunning example {example_number}...\n")
+        run_demo(example_number)
+        print("\n" + "="*100)
+        print(f'Example {example_number} completed!')
+        print("="*100)
+        print("\nUsage: python demo.py [example_number]")
+        print("  e.g., python demo.py 11")
