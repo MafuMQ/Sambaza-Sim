@@ -67,7 +67,8 @@ Input_Output_Model/
 │   ├── entities/
 │   │   ├── Good.py                     # Good entity — ISIC classified products
 │   │   ├── Production.py              # Production method — input recipes & VA
-│   │   └── SupplyCurve.py             # Tiered supply curve — price/capacity steps
+│   │   ├── SupplyCurve.py             # Tiered supply curve — price/capacity steps
+│   │   └── TechChange.py              # TechChange entity — DB-backed example store
 │   └── table/
 │       └── solver.py                   # DynamicEquilibriumSolver — supply curve solver
 │
@@ -75,15 +76,18 @@ Input_Output_Model/
 │   └── Evaluators.py                   # Matrix builders, curve builders, price evaluation
 │
 └── demos/
-    ├── demo.py                         # Unified demo runner (15 examples)
+    ├── demo.py                         # Unified demo runner (examples 7–16)
+    ├── test_capital_investment.py      # Tests: 2-phase capital investment (3 tests)
     ├── configs/
-    │   ├── tax_policy_examples.py      # Tax policy examples (1–6)
-    │   └── tech_change_examples.py     # Tech change examples (7–15)
+    │   ├── __init__.py
+    │   └── load_tech_changes.py        # CSV → DB loader + rebuild_examples_dict_from_db()
     └── util/
         ├── Setup_Data.py               # Data loading (CSV or random generation)
-        ├── simulation.py               # Unified simulation engine
-        └── technological_change.py     # Multi-level technological change system
+        ├── simulation.py               # Unified simulation engine + 2-phase capital
+        └── technological_change.py     # Multi-level tech change + capital requirements
 ```
+
+All tech change examples are driven by **data files** (`data/ex2/tech_changes.csv` and `data/ex2/tax_policies.csv`) rather than hardcoded Python. `setup_data()` loads them into `data.db` automatically at step [4/4].
 
 ## Data Model
 
@@ -167,6 +171,7 @@ Unified function supporting all analysis modes:
 - **Technology comparison** — Baseline vs. modified technology, same final demand
 - **Combined** — Simultaneous tech change + tax policy shift
 - **Multi-period** — Circular flow iterations where VA(t) → FD(t+1)
+- **2-Phase capital investment** — When `tech_change.has_capital_requirements()` is true, simulation automatically runs an Investment phase before the technology phase (see [Capital Investment](#capital-investment))
 
 Supports two solver modes:
 - `leontief` — Standard Leontief inverse
@@ -175,8 +180,10 @@ Supports two solver modes:
 ### Data Setup (`demos/util/Setup_Data.py`)
 
 Two data sources:
-- **CSV files** — Load from `data/ex1/` or `data/ex2/` (goods.csv + productions.csv)
+- **CSV files** — Load from `data/ex1/` or `data/ex2/` (`goods.csv` + `productions.csv` + optional `tech_changes.csv` + `tax_policies.csv`)
 - **Random generation** — Creates a synthetic economy with 5 goods, 4 domestic productions each, plus import options
+
+When a `tech_changes.csv` is present in the source directory it is automatically loaded into the database at step [4/4] of `setup_data()`.
 
 ## Getting Started
 
@@ -336,11 +343,24 @@ run_simulation(
 ### Running Demos
 
 ```bash
-cd Input_Output_Model/demos
-python demo.py
+# From project root:
+python Input_Output_Model/demos/demo.py          # default: example 7
+python Input_Output_Model/demos/demo.py 16       # run specific example
 ```
 
-Edit the `example_number` variable in `demo.py` to select which example to run (1–15).
+Pass the example number as a command-line argument (7–16). The demo auto-lists all available examples on startup.
+
+### Running Tests
+
+```bash
+# From project root:
+python Input_Output_Model/demos/test_capital_investment.py
+```
+
+Runs 3 tests and exits 0 if all pass:
+1. **Capital investment** — 2-phase run: asserts correct phase labels, FD conservation, and FD == baseline throughout
+2. **No capital** — control run: asserts all phases are `None`, FD conserved
+3. **Via CSV** — end-to-end: loads `data/ex2/tech_changes.csv` → DB → builder → `run_simulation`, asserts all of the above
 
 ## Demo Examples
 
@@ -366,18 +386,19 @@ Edit the `example_number` variable in `demo.py` to select which example to run (
 | 11 | Green Transition | Economy-wide multi-sector efficiency gains |
 | 12 | Custom Coefficients | Fine-grained coefficient targeting |
 
-### Multi-Level (Examples 13–14)
+### Multi-Level (Examples 13–15)
 
 | # | Title | Description |
 |---|-------|-------------|
 | 13 | Production-Level Modernization | Level 3 + Level 1 changes, matrix rebuilt from modified productions |
 | 14 | Capacity Expansion | Level 2 curve tier changes, new capacity at lower cost |
+| 15 | Green Transition + Carbon Tax | Simultaneous tech change (efficiency) + tax policy (carbon pricing) |
 
-### Combined (Example 15)
+### Capital Investment (Example 16)
 
 | # | Title | Description |
 |---|-------|-------------|
-| 15 | Green Transition + Carbon Tax | Simultaneous tech change (efficiency) + tax policy (carbon pricing) |
+| 16 | Energy Efficiency with Capital Investment | 20% energy reduction requiring $300 upfront capital — 2 investment iterations then 3 new-technology iterations |
 
 ## Usage Reference
 
@@ -477,7 +498,62 @@ result = tc.apply_to_productions(ptdb, scdb, gdb,
                                   rebuild_curves=True,
                                   rebuild_matrix=True)
 ```
+#### Capital Investment
 
+Attach capital spending requirements to any `TechnologicalChange`. Before the new technology takes effect the simulation runs `investment_duration` iterations where final demand is **reallocated** (not increased) toward the specified capital sectors.
+
+```python
+tc = TechnologicalChange(name="Energy Efficiency Upgrade")
+
+# Structural change: 20% reduction in energy input across all sectors
+tc.add_input_change(
+    input_sector_idx="A6178_413_70647",
+    change_type="multiply",
+    value=0.80,
+)
+
+# Capital requirement: $300 must be spent before the change takes effect
+tc.set_capital_requirements(
+    requirements={
+        "A2227_974_71103": 200.0,   # $200 machinery
+        "A3790_132_63":   100.0,   # $100 installation
+    },
+    investment_duration=2,          # 2 investment iterations, then new tech
+)
+
+print(tc.has_capital_requirements())   # True
+print(tc.get_total_capital_cost())     # 300.0
+
+# Pass to run_simulation — phases are handled automatically
+result = run_simulation(
+    uniform_demand=100.0,
+    tech_change=tc,
+    iterations=5,           # iters 1–2 = Investment, iters 3–5 = New Technology
+    solver_type="leontief",
+)
+```
+
+**2-Phase mechanics:**
+
+| Phase | Iterations | A matrix | Final Demand |
+|-------|-----------|----------|--------------|
+| Investment | 1 … `investment_duration` | baseline (old technology) | reallocated toward capital sectors; total FD unchanged |
+| New Technology | remainder | updated (new technology) | restored to original distribution |
+
+Capital spending is a **reallocation** — it reduces demand from other sectors proportionally, so total FD = VA is conserved every iteration. No new money is created.
+
+Each iteration's phase label is stored in `result['after_history'][i]['phase']` (`"Investment"` or `"New Technology"`).
+
+#### Capital Requirements in CSV
+
+To specify capital requirements in `tech_changes.csv`, add a `set_capital_requirements` entry in the `tech_change_params` JSON array:
+
+```csv
+example_id,... ,use_multi_level,tech_change_params
+16,tech_change,...,True,"[{""method"": ""add_input_change"", ""params"": {...}}, {""method"": ""set_capital_requirements"", ""params"": {""requirements"": {""A2227_974_71103"": 200.0, ""A3790_132_63"": 100.0}, ""investment_duration"": 2}}]"
+```
+
+`set_capital_requirements` is dispatched via `getattr` like every other method, so no code changes are needed in the loader.
 #### Change Types
 
 | Type | Description | Example |
@@ -545,12 +621,14 @@ All `apply*` methods return a dictionary:
 4. **Hardcoded labor** — Bonus wages are embedded in production recipes, not adjustable as labor market variables.
 5. **No diminishing returns** — Investment returns are linear; no ICOR dynamics yet.
 6. **Cannot mix Level 2 and Level 3 changes in one TechnologicalChange object** — If you add both production changes (Level 3) and curve changes (Level 2) to a single `TechnologicalChange` object, calling `apply_to_productions()` will rebuild the supply curves entirely from production records, which overwrites any Level 2 curve modifications. Use separate objects or apply Level 2 changes after the Level 3 cascade completes.
+7. **Capital investment is always a reallocation** — `set_capital_requirements` re-routes existing demand; it does not model external financing, borrowing, or savings drawdown. The total FD is strictly conserved across all investment iterations.
 
 See [notes.txt](notes.txt) for the full design notes and roadmap.
 
 ## Roadmap
 
-- [ ] Government & corporate investment applying technological change
+- [x] Government-driven investment applying technological change (2-phase capital + tech)
+- [ ] External financing / savings drawdown for capital investment
 - [ ] Savings, debt tracking, and leakage modeling
 - [ ] Diminishing returns on investment
 - [ ] Investment ranking and multi-option optimization (Harrod-Domar/ICOR)
