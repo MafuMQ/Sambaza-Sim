@@ -142,6 +142,11 @@ class TechnologicalChange:
         # ISIC mapping (set when using ISIC codes instead of indices)
         self._isic_map = None
         
+        # Capital investment requirements for this technological change
+        # Maps sector (ISIC code or index) -> dollar amount of capital goods needed
+        self.capital_requirements = {}
+        self.investment_duration = 1  # number of iterations for investment phase
+        
         # Backward compatibility alias
         self.changes = self.matrix_changes
     
@@ -528,6 +533,81 @@ class TechnologicalChange:
             'change_type': change_type,
             'value': value
         })
+    
+    # ==========================================================================
+    # Capital Requirements (Investment Cost of Technology Change)
+    # ==========================================================================
+    
+    def set_capital_requirements(self, requirements: Dict[Union[str, int], float],
+                                  investment_duration: int = 1):
+        """
+        Set the capital goods required to implement this technological change.
+        
+        This defines what must be purchased (as investment demand) BEFORE the
+        technology change takes effect. The simulation runs in two phases:
+        
+        Phase 1 (Investment): Capital demand is injected into the economy.
+            The OLD technology is still active. Capital-producing sectors
+            receive extra demand to produce the required equipment/infrastructure.
+        
+        Phase 2 (New Technology): Capital has been delivered. The technology
+            change takes effect (A matrix switches to A_after).
+        
+        Parameters:
+        -----------
+        requirements : dict
+            Mapping of sector ISIC code (or index) to dollar amount of capital
+            goods needed from that sector.
+            Example: {"C28_281_2821": 500.0, "F41_411_4110": 200.0}
+            meaning: need $500 of machinery and $200 of construction
+        investment_duration : int
+            Number of iterations the investment phase lasts (default: 1).
+            The technology switches after this many iterations.
+        """
+        self.capital_requirements = requirements
+        self.investment_duration = max(1, investment_duration)
+    
+    def has_capital_requirements(self) -> bool:
+        """Check if this technological change requires capital investment."""
+        return len(self.capital_requirements) > 0 and sum(self.capital_requirements.values()) > 0
+    
+    def get_total_capital_cost(self) -> float:
+        """Get total capital investment required."""
+        return sum(self.capital_requirements.values())
+    
+    def get_capital_demand_vector(self, isic_map: Dict[str, int], n: int) -> 'np.ndarray':
+        """
+        Convert capital requirements into a demand vector for the I-O model.
+        
+        Each entry represents the dollar amount of capital goods that must be
+        produced by that sector to enable this technological change.
+        
+        Parameters:
+        -----------
+        isic_map : dict
+            Mapping of ISIC codes to matrix indices
+        n : int
+            Number of sectors
+        
+        Returns:
+        --------
+        np.ndarray : Capital demand vector (n,) with amounts per sector
+        """
+        capital_demand = np.zeros(n)
+        for sector, amount in self.capital_requirements.items():
+            if isinstance(sector, str):
+                if sector in isic_map:
+                    capital_demand[isic_map[sector]] = amount
+                else:
+                    logger.warning(f"Capital requirement sector '{sector}' not found in isic_map")
+            elif isinstance(sector, int):
+                if 0 <= sector < n:
+                    capital_demand[sector] = amount
+                else:
+                    logger.warning(f"Capital requirement sector index {sector} out of range (n={n})")
+            else:
+                logger.warning(f"Invalid sector reference in capital_requirements: {sector}")
+        return capital_demand
     
     # ==========================================================================
     # Apply Methods
@@ -1301,6 +1381,15 @@ class TechnologicalChange:
                     ctype = change['change_type']
                     val = change['value']
                     summary.append(f"  {i}. Curve [{isic}] all tiers {field}: {ctype} by {val}")
+        
+        # Capital requirements
+        if self.capital_requirements:
+            summary.append(f"\n--- Capital Investment Requirements ---")
+            total_cost = self.get_total_capital_cost()
+            summary.append(f"  Total capital cost: ${total_cost:,.2f}")
+            summary.append(f"  Investment duration: {self.investment_duration} iteration(s)")
+            for sector, amount in self.capital_requirements.items():
+                summary.append(f"  Sector [{sector}]: ${amount:,.2f}")
         
         return "\n".join(summary)
 

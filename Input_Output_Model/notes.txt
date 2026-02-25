@@ -1,5 +1,6 @@
 LIMITATIONS
 ---
+0. Note that most Input-Output tables do not segregate VA, as this data is usually impossible to obtain, reversing FD is a possible workaround
 1. As of now, technological progress by reduction of input is immediately passed to the VA, -0.3 -> +0.3, this mean the system is generally conserved, and growth happens when the excess VA is passed to the FD, which in turn creates higher output, this does not happen as the increase of VA of that sector/product is complimented by decrease of VA on other sectors/products, leading to a consistent total VA therefore a consistent FD, this is because the decrease of input from other sectors, means less demand from other sectors. This is maybe why WAGE income is an important artifact of capitalism.
 2. As of now, the model is unable to demonstrate the decrease (or change) of a price of a good, just only the change in surplus and wage proportions. This can be fixed by changing the CURVES, when a change in price is triggered. This then will require the rebuilding of the table/coefficient matrix.
 	Because prices don't change, elasticity (including in terms of substitution) is disregarded.
@@ -24,14 +25,16 @@ GOALS
     c. Invest into self
 5. Investment which applies technological change, and uses up saving, we see the return ratio of that investment
 6. Savings & Debt-Tracking
-7. Time is money so rate should also be a factor.
 8. Diminishing returns on investments
 9. Rank the investments
 10. Problem Solve multiple investment options
 11. System wide investment demo using ICOR/Harrod-Domar model
+--- SKIP FOR NOW
+7. Time is money so rate should also be a factor.
 12. International Trade?
 13. Allow Leakages, and savings
 14. Elasticity
+--- 
 15. Now we move outside the single commune to a single business, entrepreneurship opportunities, country wide, basically custom sized economy
 16. Raw Material version/substitution
 ---

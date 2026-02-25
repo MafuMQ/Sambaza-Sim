@@ -160,7 +160,9 @@ def apply_taxes(income, income_tax_rate, corporate_tax_rate, income_tax_applies_
         income_tax = bonusWages * income_tax_rate
         bonusWages_net = bonusWages * (1 - income_tax_rate)
         minWages_net = minWages  # Not taxed
-        wages_net = minWages_net + bonusWages_net
+        # wages_net = total wages minus income tax on bonusWages
+        # (uses aggregate wages to avoid component mismatch)
+        wages_net = wages - income_tax
     elif income_tax_applies_to == "wages":
         income_tax = wages * income_tax_rate
         wages_net = wages * (1 - income_tax_rate)
@@ -302,8 +304,11 @@ def _build_demand_vector(n_sectors, isic_map, final_demand=None, demand_vector=N
         return demand
     
     if uniform_demand is not None:
-        demand = np.full(n_sectors, uniform_demand, dtype=float)
-        print(f"\nDemand Mode: Uniform (${uniform_demand:,.2f} per sector)")
+        demand = np.zeros(n_sectors, dtype=float)
+        for isic, idx in isic_map.items():
+            if isic != "A9999_999_999":
+                demand[idx] = uniform_demand
+        print(f"\nDemand Mode: Uniform (${uniform_demand:,.2f} per sector, {int((demand > 0).sum())} domestic sectors)")
         return demand
     
     if total_demand is not None and proportions is not None:
@@ -332,9 +337,25 @@ def _run_scenario(solver_fn, demand, A_matrix, VA_coeffs, va_components, scale_f
                   iterations, consumption_proportions, investment_proportions,
                   government_proportions, demand_distribution,
                   initial_demand_proportions, domestic_indices, n,
-                  scenario_name, has_taxes, verbose=True):
+                  scenario_name, has_taxes, verbose=True,
+                  capital_phase=None):
     """
     Run one scenario for the given number of iterations.
+    
+    Parameters:
+    -----------
+    capital_phase : dict, optional
+        If provided, enables 2-phase investment simulation:
+        {
+            'capital_demand': np.ndarray,       # additional demand during investment phase
+            'transition_after': int,            # switch technology after N iterations
+            'solver_fn_new': callable,          # solver using new technology
+            'A_matrix_new': np.ndarray,         # A matrix after investment
+            'VA_coeffs_new': np.ndarray,        # VA coefficients after investment
+            'scale_factors_new': np.ndarray,    # VA scale factors after investment
+        }
+        Phase 1 (iterations 0..transition_after-1): old tech + capital demand injected
+        Phase 2 (iterations transition_after..end): new tech active
     
     Returns a list of per-iteration result dictionaries.
     """
@@ -345,27 +366,60 @@ def _run_scenario(solver_fn, demand, A_matrix, VA_coeffs, va_components, scale_f
     current_G = None
     
     for iteration in range(iterations):
+        # Determine active technology based on capital investment phase
+        if capital_phase is not None:
+            transition_after = capital_phase['transition_after']
+            if iteration < transition_after:
+                # INVESTMENT PHASE: old technology, capital demand redirected from existing FD
+                active_solver = solver_fn
+                active_A = A_matrix
+                active_VA = VA_coeffs
+                active_scales = scale_factors
+                phase_name = "Investment"
+                # No savings: capital spending is a reallocation from I (and G) into capital goods.
+                # Proportionally reduce existing demand and redirect to capital-producing sectors,
+                # keeping total FD conserved.
+                cap = capital_phase['capital_demand']
+                total_cap = cap.sum()
+                total_fd = current_demand.sum()
+                if total_fd > 0 and total_cap < total_fd:
+                    current_demand = current_demand * (1.0 - total_cap / total_fd) + cap
+            else:
+                # POST-INVESTMENT PHASE: new technology active
+                active_solver = capital_phase['solver_fn_new']
+                active_A = capital_phase['A_matrix_new']
+                active_VA = capital_phase['VA_coeffs_new']
+                active_scales = capital_phase['scale_factors_new']
+                phase_name = "New Technology"
+        else:
+            active_solver = solver_fn
+            active_A = A_matrix
+            active_VA = VA_coeffs
+            active_scales = scale_factors
+            phase_name = None
+        
         if iterations > 1 and verbose:
-            print(f"\n>>> Iteration {iteration + 1}/{iterations}")
+            phase_str = f" [{phase_name}]" if phase_name else ""
+            print(f"\n>>> Iteration {iteration + 1}/{iterations}{phase_str}")
             print(f"    Final Demand: ${current_demand.sum():>12,.2f}")
         
         # Solve for output
-        output, prices = solver_fn(current_demand)
+        output, prices = active_solver(current_demand)
         
         # Calculate value added by sector
-        VA_by_sector = VA_coeffs * output
+        VA_by_sector = active_VA * output
         VA_total = VA_by_sector.sum()
         
         # Calculate intermediate inputs by sector
-        intermediate_by_sector = A_matrix.sum(axis=0) * output
+        intermediate_by_sector = active_A.sum(axis=0) * output
         intermediate_total = intermediate_by_sector.sum()
         
         # Compute VA sub-components (income distribution)
         income = {
-            'minWages': output * va_components['minWages'] * scale_factors,
-            'bonusWages': output * va_components['bonusWages'] * scale_factors,
-            'wages': output * va_components['wages'] * scale_factors,
-            'surplus': output * va_components['surplus'] * scale_factors
+            'minWages': output * va_components['minWages'] * active_scales,
+            'bonusWages': output * va_components['bonusWages'] * active_scales,
+            'wages': output * va_components['wages'] * active_scales,
+            'surplus': output * va_components['surplus'] * active_scales
         }
         
         # Apply taxes
@@ -379,6 +433,7 @@ def _run_scenario(solver_fn, demand, A_matrix, VA_coeffs, va_components, scale_f
         # Store iteration results
         history.append({
             'iteration': iteration + 1,
+            'phase': phase_name,
             'demand': current_demand.copy(),
             'X': output.copy(),
             'VA_by_sector': VA_by_sector.copy(),
@@ -1309,22 +1364,71 @@ def run_simulation(
     _display_scenario(before_name, before_history, isic_map, has_taxes_before, iterations)
     
     # ==================================================================
-    # 8. Run AFTER scenario
+    # 8. Run AFTER scenario (with optional capital investment phase)
     # ==================================================================
-    print(f"\n{'='*100}")
-    if iterations > 1:
-        print(f"SCENARIO 2: {after_name} (Circular Flow - {iterations} iterations)")
+    
+    # Detect capital investment requirements
+    capital_phase = None
+    if tech_change is not None and tech_change.has_capital_requirements():
+        capital_demand = tech_change.get_capital_demand_vector(isic_map, n)
+        transition_after = tech_change.investment_duration
+        
+        # Ensure enough iterations to show both phases
+        min_iterations = transition_after + 1
+        if iterations < min_iterations:
+            print(f"\n[!] Capital investment requires at least {min_iterations} iterations")
+            print(f"    ({transition_after} for investment + at least 1 for new technology)")
+            print(f"    Auto-adjusting iterations: {iterations} -> {min_iterations}")
+            iterations = min_iterations
+        
+        capital_phase = {
+            'capital_demand': capital_demand,
+            'transition_after': transition_after,
+            'solver_fn_new': solver_after,
+            'A_matrix_new': A_after,
+            'VA_coeffs_new': VA_after,
+            'scale_factors_new': scale_factors_after,
+        }
+        
+        print(f"\n{'='*100}")
+        print(f"SCENARIO 2: {after_name} (2-Phase: Investment -> Technology Change)")
+        print(f"{'='*100}")
+        print(f"\n  Capital Investment Required:")
+        for sector, amount in tech_change.capital_requirements.items():
+            print(f"    {sector}: ${amount:,.2f}")
+        print(f"    TOTAL: ${tech_change.get_total_capital_cost():,.2f}")
+        print(f"\n  Phase 1 (Iterations 1-{transition_after}): Investment")
+        print(f"    Old technology active. Capital demand injected as additional FD.")
+        print(f"  Phase 2 (Iterations {transition_after + 1}-{iterations}): New Technology")
+        print(f"    Capital installed. Technology change takes effect.")
     else:
-        print(f"SCENARIO 2: {after_name}")
-    print(f"{'='*100}")
+        print(f"\n{'='*100}")
+        if iterations > 1:
+            print(f"SCENARIO 2: {after_name} (Circular Flow - {iterations} iterations)")
+        else:
+            print(f"SCENARIO 2: {after_name}")
+        print(f"{'='*100}")
+    
+    # When capital phase is active, the after scenario STARTS with old technology
+    # and transitions to new technology after the investment phase
+    if capital_phase is not None:
+        after_solver = solver_before
+        after_A = A_before
+        after_VA = VA_before
+        after_scales = scale_factors_before
+    else:
+        after_solver = solver_after
+        after_A = A_after
+        after_VA = VA_after
+        after_scales = scale_factors_after
     
     after_history = _run_scenario(
-        solver_fn=solver_after,
+        solver_fn=after_solver,
         demand=demand,
-        A_matrix=A_after,
-        VA_coeffs=VA_after,
+        A_matrix=after_A,
+        VA_coeffs=after_VA,
         va_components=va_components,
-        scale_factors=scale_factors_after,
+        scale_factors=after_scales,
         income_tax_rate=income_tax_rate_after,
         corporate_tax_rate=corporate_tax_rate_after,
         income_tax_applies_to=income_tax_applies_to,
@@ -1338,6 +1442,7 @@ def run_simulation(
         n=n,
         scenario_name=after_name,
         has_taxes=has_taxes_after,
+        capital_phase=capital_phase,
     )
     
     _display_scenario(after_name, after_history, isic_map, has_taxes_after, iterations)
