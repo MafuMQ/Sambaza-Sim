@@ -1484,6 +1484,29 @@ def run_simulation(
         elif delta_X_total > 0:
             print(f"\nTechnology increases gross output by {delta_X_total:.2f} for the SAME demand.")
             print(f"  This could indicate substitution toward more input-intensive methods.")
+
+        # --- Tech Change Metrics ---
+        X_before_total = last_b['X'].sum()
+        X_after_total  = last_a['X'].sum()
+        pct_output_gain = (X_after_total / X_before_total - 1) * 100 if X_before_total > 0 else 0.0
+        va_gain = deltas['VA']
+
+        print(f"\n{'='*100}")
+        print(f"TECH CHANGE METRICS")
+        print(f"{'='*100}")
+        print(f"  Total output gain:    {delta_X_total:>+12,.2f}")
+        print(f"  Percent output gain:  {pct_output_gain:>+11,.4f}%")
+        print(f"  Value-added gain:     {va_gain:>+12,.2f}")
+
+        # Cost effectiveness only when capital requirements were set
+        if tech_change is not None and tech_change.has_capital_requirements():
+            impl_cost = tech_change.get_total_capital_cost()
+            if impl_cost > 0:
+                cost_effectiveness = delta_X_total / impl_cost
+                print(f"  Implementation cost:  ${impl_cost:>11,.2f}")
+                print(f"  Cost effectiveness:   {cost_effectiveness:>+12,.4f}  (Δ output per $ invested)")
+        else:
+            print(f"  Cost effectiveness:   N/A  (no capital cost specified)")
     
     # ==================================================================
     # 11. Return structured result
