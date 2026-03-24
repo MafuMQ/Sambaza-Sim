@@ -223,6 +223,8 @@ def load_tech_change_from_csv(
 ) -> int:
     """
     Load tech change examples from CSV into the database.
+    Now supports normalized format where each parameter row is separate,
+    linked by tech_change_id.
     
     Parameters:
     -----------
@@ -251,73 +253,252 @@ def load_tech_change_from_csv(
             logger.error(f"CSV file not found: {csv_path}")
             return 0
         
+        # First pass: Group rows by tech_change_id
+        tech_changes_data = {}
+        
         with open(csv_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
+            logger.info(f"CSV columns: {reader.fieldnames}")
             
             for row in reader:
-                try:
-                    example_id = int(row['example_id'])
-                    title = row['title']
-                    description = row.get('description', '').replace(' | ', '\n')
-                    
-                    # Prepare parameters
-                    params = {
-                        'example_id': example_id,
-                        'change_type': 'tech_change',
-                        'title': title,
-                        'description': description,
-                        'is_tech_comparison': True
-                    }
-                    
-                    # Add tech change specific fields
-                    if row.get('tech_change_function_name'):
-                        params['tech_change_function_name'] = row['tech_change_function_name']
-                    
-                    # Parse and store JSON specifications
-                    if row.get('tech_change_params'):
-                        try:
-                            tech_change_params = json.loads(row['tech_change_params'])
-                            params['tech_change_params'] = tech_change_params
-                            logger.info(f"Parsed tech_change_params for example {example_id}: {len(tech_change_params)} changes")
-                        except json.JSONDecodeError as je:
-                            logger.error(f"Failed to parse tech_change_params JSON for example {example_id}: {je}")
-                    else:
-                        logger.warning(f"No tech_change_params found for example {example_id}")
-                    
-                    logger.info(f"Params keys before add: {list(params.keys())}")
-                    
-                    if row.get('final_demand'):
-                        params['final_demand'] = _deserialize_value(row['final_demand'], 'list')
-                    
-                    if row.get('use_multi_level'):
-                        params['use_multi_level'] = _deserialize_value(row['use_multi_level'], 'bool')
-                    
-                    if row.get('solver_type'):
-                        params['solver_type'] = row['solver_type']
-                    
-                    # Add tax policy fields if present (for combined examples)
-                    field_mappings = {
-                        'income_tax_rate_before': 'float',
-                        'income_tax_rate_after': 'float',
-                        'corporate_tax_rate_before': 'float',
-                        'corporate_tax_rate_after': 'float',
-                        'income_tax_applies_to': 'auto',
-                        'consumption_proportions': 'list',
-                        'investment_proportions': 'list',
-                        'government_proportions': 'list',
-                        'iterations': 'int'
-                    }
-                    
-                    for field, field_type in field_mappings.items():
-                        if field in row and row[field]:
-                            params[field] = _deserialize_value(row[field], field_type)
-                    
-                    # Add to database
-                    db.add_tech_change(**params)
-                    count += 1
-                    
-                except Exception as e:
-                    logger.error(f"Failed to load tech change example {row.get('example_id', '?')}: {e}")
+                tech_change_id = row.get('tech_change_id')
+                logger.debug(f"Processing row for tech_change_id: {tech_change_id}")
+                if not tech_change_id:
+                    logger.warning(f"Row missing tech_change_id, skipping")
+                    continue
+                
+                # Initialize tech change data if first row for this ID
+                if tech_change_id not in tech_changes_data:
+                        tech_changes_data[tech_change_id] = {
+                            'metadata': {
+                                'example_id': int(row['example_id']),
+                                'change_type': row.get('change_type', 'tech_change'),
+                                'title': row['title'],
+                                'description': row.get('description', '').replace(' | ', '\n'),
+                                'is_tech_comparison': True
+                            },
+                            'params': []
+                        }
+                        
+                        # Store other metadata fields
+                        metadata = tech_changes_data[tech_change_id]['metadata']
+                        metadata['tech_change_function_name'] = tech_change_id
+                        
+                        if row.get('final_demand'):
+                            try:
+                                metadata['final_demand'] = _deserialize_value(row['final_demand'], 'list')
+                            except (ValueError, TypeError) as e:
+                                logger.debug(f"Skipping final_demand with value '{row['final_demand']}': {e}")
+                        
+                        if row.get('use_multi_level'):
+                            try:
+                                metadata['use_multi_level'] = _deserialize_value(row['use_multi_level'], 'bool')
+                            except (ValueError, TypeError) as e:
+                                logger.debug(f"Skipping use_multi_level with value '{row['use_multi_level']}': {e}")
+                        
+                        if row.get('solver_type'):
+                            metadata['solver_type'] = row['solver_type']
+                        
+                        # Add tax policy fields if present
+                        field_mappings = {
+                            'income_tax_rate_before': 'float',
+                            'income_tax_rate_after': 'float',
+                            'corporate_tax_rate_before': 'float',
+                            'corporate_tax_rate_after': 'float',
+                            'income_tax_applies_to': 'auto',
+                            'consumption_proportions': 'list',
+                            'investment_proportions': 'list',
+                            'government_proportions': 'list',
+                            'iterations': 'int'
+                        }
+                        
+                        for field, field_type in field_mappings.items():
+                            if field in row and row[field]:
+                                try:
+                                    metadata[field] = _deserialize_value(row[field], field_type)
+                                except (ValueError, TypeError) as e:
+                                    logger.debug(f"Skipping field '{field}' with value '{row[field]}': {e}")
+                
+                # Build parameter object for this row
+                method = row.get('method')
+                if method:
+                        param_obj = {'method': method, 'params': {}}
+                        
+                        # Helper to safely get float value
+                        def safe_float(val):
+                            if val and val.strip():
+                                return float(val)
+                            return None
+                        
+                        def safe_int(val):
+                            if val and val.strip():
+                                return int(val)
+                            return None
+                        
+                        # Map columns to parameter names based on method
+                        if method == 'add_coefficient_change':
+                            if row.get('sector_idx'):
+                                param_obj['params']['sector_idx'] = row['sector_idx']
+                            if row.get('input_sector_idx'):
+                                param_obj['params']['input_sector_idx'] = row['input_sector_idx']
+                            if row.get('change_type_param'):
+                                param_obj['params']['change_type'] = row['change_type_param']
+                            val = safe_float(row.get('value'))
+                            if val is not None:
+                                param_obj['params']['value'] = val
+                        
+                        elif method == 'add_sector_change':
+                            if row.get('sector_idx'):
+                                param_obj['params']['sector_idx'] = row['sector_idx']
+                            if row.get('change_type_param'):
+                                param_obj['params']['change_type'] = row['change_type_param']
+                            val = safe_float(row.get('value'))
+                            if val is not None:
+                                param_obj['params']['value'] = val
+                            if row.get('exclude_list'):
+                                param_obj['params']['exclude_inputs'] = row['exclude_list'].split(';')
+                            else:
+                                param_obj['params']['exclude_inputs'] = []
+                        
+                        elif method == 'add_input_change':
+                            if row.get('input_sector_idx'):
+                                param_obj['params']['input_sector_idx'] = row['input_sector_idx']
+                            if row.get('change_type_param'):
+                                param_obj['params']['change_type'] = row['change_type_param']
+                            val = safe_float(row.get('value'))
+                            if val is not None:
+                                param_obj['params']['value'] = val
+                            if row.get('exclude_list'):
+                                param_obj['params']['exclude_sectors'] = row['exclude_list'].split(';')
+                        
+                        elif method == 'add_production_all_inputs_change':
+                            prod_id = safe_int(row.get('production_id'))
+                            if prod_id is not None:
+                                param_obj['params']['production_id'] = prod_id
+                            if row.get('change_type_param'):
+                                param_obj['params']['change_type'] = row['change_type_param']
+                            val = safe_float(row.get('value'))
+                            if val is not None:
+                                param_obj['params']['value'] = val
+                            if row.get('exclude_list'):
+                                param_obj['params']['exclude_isics'] = row['exclude_list'].split(';')
+                        
+                        elif method == 'add_production_efficiency_change':
+                            prod_id = safe_int(row.get('production_id'))
+                            if prod_id is not None:
+                                param_obj['params']['production_id'] = prod_id
+                            if row.get('efficiency_type'):
+                                param_obj['params']['efficiency_type'] = row['efficiency_type']
+                            if row.get('change_type_param'):
+                                param_obj['params']['change_type'] = row['change_type_param']
+                            val = safe_float(row.get('value'))
+                            if val is not None:
+                                param_obj['params']['value'] = val
+                        
+                        elif method == 'add_production_input_change':
+                            prod_id = safe_int(row.get('production_id'))
+                            if prod_id is not None:
+                                param_obj['params']['production_id'] = prod_id
+                            if row.get('input_isic'):
+                                param_obj['params']['input_isic'] = row['input_isic']
+                            if row.get('change_type_param'):
+                                param_obj['params']['change_type'] = row['change_type_param']
+                            val = safe_float(row.get('value'))
+                            if val is not None:
+                                param_obj['params']['value'] = val
+                        
+                        elif method == 'add_production_va_change':
+                            prod_id = safe_int(row.get('production_id'))
+                            if prod_id is not None:
+                                param_obj['params']['production_id'] = prod_id
+                            if row.get('va_component'):
+                                param_obj['params']['va_component'] = row['va_component']
+                            if row.get('change_type_param'):
+                                param_obj['params']['change_type'] = row['change_type_param']
+                            val = safe_float(row.get('value'))
+                            if val is not None:
+                                param_obj['params']['value'] = val
+                        
+                        elif method == 'add_production_price_change':
+                            prod_id = safe_int(row.get('production_id'))
+                            if prod_id is not None:
+                                param_obj['params']['production_id'] = prod_id
+                            if row.get('change_type_param'):
+                                param_obj['params']['change_type'] = row['change_type_param']
+                            val = safe_float(row.get('value'))
+                            if val is not None:
+                                param_obj['params']['value'] = val
+                        
+                        elif method == 'add_curve_tier_change':
+                            if row.get('isic'):
+                                param_obj['params']['isic'] = row['isic']
+                            tier_idx = safe_int(row.get('tier_index'))
+                            if tier_idx is not None:
+                                param_obj['params']['tier_index'] = tier_idx
+                            if row.get('field'):
+                                param_obj['params']['field'] = row['field']
+                            if row.get('change_type_param'):
+                                param_obj['params']['change_type'] = row['change_type_param']
+                            val = safe_float(row.get('value'))
+                            if val is not None:
+                                param_obj['params']['value'] = val
+                        
+                        elif method == 'add_curve_new_tier':
+                            if row.get('isic'):
+                                param_obj['params']['isic'] = row['isic']
+                            cap = safe_float(row.get('cap'))
+                            if cap is not None:
+                                param_obj['params']['cap'] = cap
+                            price = safe_float(row.get('price'))
+                            if price is not None:
+                                param_obj['params']['price'] = price
+                            pos = safe_int(row.get('position'))
+                            if pos is not None:
+                                param_obj['params']['position'] = pos
+                            if row.get('va_components'):
+                                param_obj['params']['va_components'] = json.loads(row['va_components'])
+                        
+                        elif method == 'add_curve_remove_tier':
+                            if row.get('isic'):
+                                param_obj['params']['isic'] = row['isic']
+                            tier_idx = safe_int(row.get('tier_index'))
+                            if tier_idx is not None:
+                                param_obj['params']['tier_index'] = tier_idx
+                        
+                        elif method == 'add_curve_scale_all_tiers':
+                            if row.get('isic'):
+                                param_obj['params']['isic'] = row['isic']
+                            if row.get('field'):
+                                param_obj['params']['field'] = row['field']
+                            if row.get('change_type_param'):
+                                param_obj['params']['change_type'] = row['change_type_param']
+                            val = safe_float(row.get('value'))
+                            if val is not None:
+                                param_obj['params']['value'] = val
+                        
+                        elif method == 'set_capital_requirements':
+                            if row.get('requirements'):
+                                param_obj['params']['requirements'] = json.loads(row['requirements'])
+                            inv_dur = safe_int(row.get('investment_duration'))
+                            if inv_dur is not None:
+                                param_obj['params']['investment_duration'] = inv_dur
+                        
+                        tech_changes_data[tech_change_id]['params'].append(param_obj)
+        
+        # Second pass: Create database entries
+        for tech_change_id, data in tech_changes_data.items():
+            try:
+                params = data['metadata'].copy()
+                params['tech_change_params'] = data['params']
+                
+                logger.info(f"Loading tech change {tech_change_id} with {len(data['params'])} parameter sets")
+                
+                # Add to database
+                db.add_tech_change(**params)
+                count += 1
+                
+            except Exception as e:
+                logger.error(f"Failed to load tech change {tech_change_id}: {e}")
         
         logger.info(f"Loaded {count} tech change examples from {csv_path}")
         return count

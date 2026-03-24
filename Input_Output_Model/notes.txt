@@ -10,7 +10,7 @@ LIMITATIONS
 5. If the price of a good changes, it won't be automatically reflected in the monetary i-o, as the monetary io does not show quantity, but price, so price change is not reflected, will require manual reflection. 
 6. Some demands cannot be satisfied on a single iteration/day, e.g. a consumer that wants a car will not buy one after an hour, the monetary io "may" show that they purchase a piece of the car to represent the savings and the future purchase. Does the io table do this?
 7. how do we deal with super/subsets, do we simply just add multiple production methods?...Yes! we can maybe...look at all the valid subsets, and pick the cheapest, or evaluate for the cheapest
-8. tech_change_params in tech_changes.csv must be a json field as there are multiple "methods"
+8. tech_changes.csv now uses a normalized format where each method call is a separate row. Multiple rows with the same tech_change_id belong to the same technological change. The load_tech_changes.py module reconstructs the JSON structure from these normalized rows.
 ---
 GOALS
 ---
