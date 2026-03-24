@@ -430,6 +430,22 @@ def _run_scenario(solver_fn, demand, A_matrix, VA_coeffs, va_components, scale_f
         I_val = after_tax['surplus_net'].sum()
         G = after_tax['total_tax'].sum()
         
+        # Calculate output proportions for each sector (avoid division by zero)
+        # VA proportion + Intermediate proportion should ≈ 1.0 for each sector
+        va_output_ratio = np.divide(
+            VA_by_sector,
+            output,
+            where=output > 0.01,
+            out=np.zeros_like(VA_by_sector)
+        )
+        
+        intermediate_output_ratio = np.divide(
+            intermediate_by_sector,
+            output,
+            where=output > 0.01,
+            out=np.zeros_like(intermediate_by_sector)
+        )
+        
         # Store iteration results
         history.append({
             'iteration': iteration + 1,
@@ -448,6 +464,8 @@ def _run_scenario(solver_fn, demand, A_matrix, VA_coeffs, va_components, scale_f
             'demand_C': current_C.copy() if current_C is not None else None,
             'demand_I': current_I.copy() if current_I is not None else None,
             'demand_G': current_G.copy() if current_G is not None else None,
+            'va_output_ratio': va_output_ratio.copy(),
+            'intermediate_output_ratio': intermediate_output_ratio.copy(),
         })
         
         if iterations > 1 and verbose:
@@ -927,6 +945,51 @@ def _display_comparison(before_history, after_history, before_name, after_name,
               f"{fd_a_total:>12.2f}   "
               f"{'100.00%':>12}   "
               f"{delta_FD_by_sector.sum():>+12.2f}")
+    
+    # Output Proportions Comparison
+    va_out_ratio_b = last_b.get('va_output_ratio', np.zeros(len(isic_map)))
+    va_out_ratio_a = last_a.get('va_output_ratio', np.zeros(len(isic_map)))
+    int_out_ratio_b = last_b.get('intermediate_output_ratio', np.zeros(len(isic_map)))
+    int_out_ratio_a = last_a.get('intermediate_output_ratio', np.zeros(len(isic_map)))
+    
+    print(f"\n{'='*100}")
+    print(f"OUTPUT COMPOSITION BY SECTOR")
+    print(f"{'='*100}")
+    print(f"(Proportions of each sector's output: VA/Output and Intermediate/Output)")
+    h_dva = "\u0394VA/Out"
+    h_dint = "\u0394Int/Out"
+    print(f"\n{'Sector':<20} {'VA/Out Before':<14} {'VA/Out After':<14} {h_dva:<14} {'Int/Out Before':<15} {'Int/Out After':<15} {h_dint:<14}")
+    print("-" * 110)
+    for isic, idx in sorted(isic_map.items(), key=lambda x: x[1]):
+        va_ratio_b = va_out_ratio_b[idx]
+        va_ratio_a = va_out_ratio_a[idx]
+        int_ratio_b = int_out_ratio_b[idx]
+        int_ratio_a = int_out_ratio_a[idx]
+        
+        if X_b[idx] > 0.01 or X_a[idx] > 0.01:
+            delta_va = va_ratio_a - va_ratio_b
+            delta_int = int_ratio_a - int_ratio_b
+            print(f"[{idx}] {isic[:17]:<17} "
+                  f"{va_ratio_b:>12.4f}   "
+                  f"{va_ratio_a:>12.4f}   "
+                  f"{delta_va:>+11.4f}   "
+                  f"{int_ratio_b:>13.4f}   "
+                  f"{int_ratio_a:>13.4f}   "
+                  f"{delta_int:>+11.4f}")
+    print("-" * 110)
+    # Calculate aggregate proportions
+    agg_va_ratio_b = VA_total_b / X_b.sum() if X_b.sum() > 0 else 0
+    agg_va_ratio_a = VA_total_a / X_a.sum() if X_a.sum() > 0 else 0
+    agg_int_ratio_b = int_total_b / X_b.sum() if X_b.sum() > 0 else 0
+    agg_int_ratio_a = int_total_a / X_a.sum() if X_a.sum() > 0 else 0
+    print(f"{'AGGREGATE':<20} "
+          f"{agg_va_ratio_b:>12.4f}   "
+          f"{agg_va_ratio_a:>12.4f}   "
+          f"{(agg_va_ratio_a - agg_va_ratio_b):>+11.4f}   "
+          f"{agg_int_ratio_b:>13.4f}   "
+          f"{agg_int_ratio_a:>13.4f}   "
+          f"{(agg_int_ratio_a - agg_int_ratio_b):>+11.4f}")
+    print(f"\n(Higher VA/Output = more efficient production; proportions should sum to ≈1.0)")
     
     # Iteration-by-iteration comparison
     if iterations > 1:

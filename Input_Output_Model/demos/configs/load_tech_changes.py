@@ -260,9 +260,8 @@ def load_tech_change_from_csv(
             reader = csv.DictReader(f)
             logger.info(f"CSV columns: {reader.fieldnames}")
             
-            for row in reader:
+            for row_num, row in enumerate(reader, start=2):
                 tech_change_id = row.get('tech_change_id')
-                logger.debug(f"Processing row for tech_change_id: {tech_change_id}")
                 if not tech_change_id:
                     logger.warning(f"Row missing tech_change_id, skipping")
                     continue
@@ -287,14 +286,14 @@ def load_tech_change_from_csv(
                         if row.get('final_demand'):
                             try:
                                 metadata['final_demand'] = _deserialize_value(row['final_demand'], 'list')
-                            except (ValueError, TypeError) as e:
-                                logger.debug(f"Skipping final_demand with value '{row['final_demand']}': {e}")
+                            except (ValueError, TypeError):
+                                pass
                         
                         if row.get('use_multi_level'):
                             try:
                                 metadata['use_multi_level'] = _deserialize_value(row['use_multi_level'], 'bool')
-                            except (ValueError, TypeError) as e:
-                                logger.debug(f"Skipping use_multi_level with value '{row['use_multi_level']}': {e}")
+                            except (ValueError, TypeError):
+                                pass
                         
                         if row.get('solver_type'):
                             metadata['solver_type'] = row['solver_type']
@@ -316,8 +315,8 @@ def load_tech_change_from_csv(
                             if field in row and row[field]:
                                 try:
                                     metadata[field] = _deserialize_value(row[field], field_type)
-                                except (ValueError, TypeError) as e:
-                                    logger.debug(f"Skipping field '{field}' with value '{row[field]}': {e}")
+                                except (ValueError, TypeError):
+                                    pass
                 
                 # Build parameter object for this row
                 method = row.get('method')
@@ -325,14 +324,20 @@ def load_tech_change_from_csv(
                         param_obj = {'method': method, 'params': {}}
                         
                         # Helper to safely get float value
-                        def safe_float(val):
+                        def safe_float(val, field_name='value'):
                             if val and val.strip():
-                                return float(val)
+                                try:
+                                    return float(val)
+                                except ValueError:
+                                    return None
                             return None
                         
-                        def safe_int(val):
+                        def safe_int(val, field_name='id'):
                             if val and val.strip():
-                                return int(val)
+                                try:
+                                    return int(val)
+                                except ValueError:
+                                    return None
                             return None
                         
                         # Map columns to parameter names based on method
@@ -504,7 +509,9 @@ def load_tech_change_from_csv(
         return count
     
     except Exception as e:
+        import traceback
         logger.error(f"Failed to load tech change CSV: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return 0
 
 

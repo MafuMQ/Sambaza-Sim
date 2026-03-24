@@ -173,7 +173,13 @@ app.layout = html.Div(
                                                             {"field": "VA_Delta", "headerName": "Δ VA", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
                                                             {"field": "FD_Before", "headerName": "FD (Before)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
                                                             {"field": "FD_After", "headerName": "FD (After)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
-                                                            {"field": "FD_Delta", "headerName": "Δ FD", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}}
+                                                            {"field": "FD_Delta", "headerName": "Δ FD", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
+                                                            {"field": "VA_Output_Before", "headerName": "VA/Output (Before)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "VA_Output_After", "headerName": "VA/Output (After)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "VA_Output_Delta", "headerName": "Δ VA/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "Int_Output_Before", "headerName": "Int/Output (Before)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "Int_Output_After", "headerName": "Int/Output (After)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "Int_Output_Delta", "headerName": "Δ Int/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}}
                                                         ],
                                                         rowData=[],
                                                         defaultColDef={"sortable": True, "filter": True, "resizable": True},
@@ -217,6 +223,24 @@ app.layout = html.Div(
                                                             {"field": "G_After", "headerName": "Government (After)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
                                                             {"field": "FD_Before", "headerName": "Total FD (Before)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
                                                             {"field": "FD_After", "headerName": "Total FD (After)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
+                                                        ],
+                                                        rowData=[],
+                                                        defaultColDef={"sortable": True, "filter": True, "resizable": True},
+                                                        dashGridOptions={"pagination": True, "paginationPageSize": 15},
+                                                        style={"height": 400, "width": "100%"}
+                                                    ),
+                                                    
+                                                    html.H3("Output Composition Ratios by Sector", style={'marginTop': '30px'}),
+                                                    dag.AgGrid(
+                                                        id="table-output-proportions",
+                                                        columnDefs=[
+                                                            {"field": "Sector", "width": 200, "pinned": "left"},
+                                                            {"field": "VA_Output_Before", "headerName": "VA/Output (Before)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "VA_Output_After", "headerName": "VA/Output (After)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "VA_Output_Delta", "headerName": "Δ VA/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "Int_Output_Before", "headerName": "Int/Output (Before)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "Int_Output_After", "headerName": "Int/Output (After)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "Int_Output_Delta", "headerName": "Δ Int/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
                                                         ],
                                                         rowData=[],
                                                         defaultColDef={"sortable": True, "filter": True, "resizable": True},
@@ -302,6 +326,7 @@ def update_controls(example_id):
     Output('table-results', 'rowData'),
     Output('table-va-components', 'rowData'),
     Output('table-fd-components', 'rowData'),
+    Output('table-output-proportions', 'rowData'),
     Output('iteration-comparison-div', 'children'),
     Input('run-button', 'n_clicks'),
     State('example-selector', 'value'),
@@ -314,7 +339,7 @@ def update_controls(example_id):
 )
 def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after):
     if not example_id or example_id not in examples_config:
-        return "-", {}, "-", {}, "-", {}, go.Figure(), go.Figure(), [], [], [], html.Div()
+        return "-", {}, "-", {}, "-", {}, "-", {}, go.Figure(), go.Figure(), [], [], [], [], html.Div()
         
     config = examples_config[example_id]
     params = config['params'].copy()
@@ -404,10 +429,10 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
             
     except Exception as e:
         print(f"Simulation error: {e}")
-        return f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, go.Figure().add_annotation(text=f"Error: {e}", showarrow=False), go.Figure(), [], [], [], html.Div()
+        return f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, go.Figure().add_annotation(text=f"Error: {e}", showarrow=False), go.Figure(), [], [], [], [], html.Div()
 
     if not res:
-        return "No Data", {}, "No Data", {}, "No Data", {}, "No Data", {}, go.Figure(), go.Figure(), [], [], [], html.Div()
+        return "No Data", {}, "No Data", {}, "No Data", {}, "No Data", {}, go.Figure(), go.Figure(), [], [], [], [], html.Div()
 
     # Process Results
     deltas = res['deltas']
@@ -452,6 +477,12 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     for i in range(len(isic_map)):
         isic = idx_map.get(i, f"Sector {i}")
         sectors.append(isic)
+    
+    # Extract output proportions from history
+    va_output_ratio_before = last_b.get('va_output_ratio', np.zeros(len(isic_map)))
+    va_output_ratio_after = last_a.get('va_output_ratio', np.zeros(len(isic_map)))
+    int_output_ratio_before = last_b.get('intermediate_output_ratio', np.zeros(len(isic_map)))
+    int_output_ratio_after = last_a.get('intermediate_output_ratio', np.zeros(len(isic_map)))
         
     df = pd.DataFrame({
         'Sector': sectors,
@@ -463,7 +494,13 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
         'VA_Delta': deltas['VA_by_sector'],
         'FD_Before': fd_before_vec,
         'FD_After': fd_after_vec,
-        'FD_Delta': fd_after_vec - fd_before_vec
+        'FD_Delta': fd_after_vec - fd_before_vec,
+        'VA_Output_Before': va_output_ratio_before,
+        'VA_Output_After': va_output_ratio_after,
+        'VA_Output_Delta': va_output_ratio_after - va_output_ratio_before,
+        'Int_Output_Before': int_output_ratio_before,
+        'Int_Output_After': int_output_ratio_after,
+        'Int_Output_Delta': int_output_ratio_after - int_output_ratio_before
     })
     
     # Sort for better presentation
@@ -475,19 +512,20 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     # Top 15 sectors for Output
     top_df_out = df.head(15).sort_values(by='Output_Before', ascending=True)
     fig_out = go.Figure()
-    fig_out.add_trace(go.Bar(
-        y=top_df_out['Sector'],
-        x=top_df_out['Output_Before'],
-        name='Before',
-        orientation='h',
-        marker_color='#3498db'
-    ))
+    # Add 'After' first, then 'Before' so 'Before' is on top
     fig_out.add_trace(go.Bar(
         y=top_df_out['Sector'],
         x=top_df_out['Output_After'],
         name='After',
         orientation='h',
         marker_color='#2ecc71'
+    ))
+    fig_out.add_trace(go.Bar(
+        y=top_df_out['Sector'],
+        x=top_df_out['Output_Before'],
+        name='Before',
+        orientation='h',
+        marker_color='#3498db'
     ))
     fig_out.update_layout(
         title=f'Gross Output Comparison - Top 15 Sectors ({actual_iterations} iteration{"s" if actual_iterations != 1 else ""})',
@@ -496,23 +534,24 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
         margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
-    
+
     # Top 15 for VA
     top_df_va = df.head(15).sort_values(by='VA_Before', ascending=True)
     fig_va = go.Figure()
-    fig_va.add_trace(go.Bar(
-        y=top_df_va['Sector'],
-        x=top_df_va['VA_Before'],
-        name='Before',
-        orientation='h',
-        marker_color='#9b59b6'
-    ))
+    # Add 'After' first, then 'Before' so 'Before' is on top
     fig_va.add_trace(go.Bar(
         y=top_df_va['Sector'],
         x=top_df_va['VA_After'],
         name='After',
         orientation='h',
         marker_color='#e67e22'
+    ))
+    fig_va.add_trace(go.Bar(
+        y=top_df_va['Sector'],
+        x=top_df_va['VA_Before'],
+        name='Before',
+        orientation='h',
+        marker_color='#9b59b6'
     ))
     fig_va.update_layout(
         title=f'Value Added Comparison - Top 15 Sectors ({actual_iterations} iteration{"s" if actual_iterations != 1 else ""})',
@@ -575,6 +614,22 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
             'FD_After': round(FD_after[idx], 2),
         })
 
+    # Build Output Proportions Table
+    output_proportions_data = []
+    for idx in sorted(idx_to_isic.keys()):
+        isic = idx_to_isic[idx]
+        sector_name = isic
+        
+        output_proportions_data.append({
+            'Sector': sector_name,
+            'VA_Output_Before': round(va_output_ratio_before[idx], 4),
+            'VA_Output_After': round(va_output_ratio_after[idx], 4),
+            'VA_Output_Delta': round(va_output_ratio_after[idx] - va_output_ratio_before[idx], 4),
+            'Int_Output_Before': round(int_output_ratio_before[idx], 4),
+            'Int_Output_After': round(int_output_ratio_after[idx], 4),
+            'Int_Output_Delta': round(int_output_ratio_after[idx] - int_output_ratio_before[idx], 4),
+        })
+
     # Build Iteration Comparison Display
     iteration_comparison_rows = []
     for i in range(actual_iterations):
@@ -612,7 +667,7 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
         style={'height': '400px', 'width': '100%'},
     )
 
-    return out_X, style_X, out_VA, style_VA, out_FD, style_FD, out_Tax, style_Tax, fig_va, fig_out, row_data, va_components_data, fd_components_data, iteration_comparison_div
+    return out_X, style_X, out_VA, style_VA, out_FD, style_FD, out_Tax, style_Tax, fig_va, fig_out, row_data, va_components_data, fd_components_data, output_proportions_data, iteration_comparison_div
 
 if __name__ == '__main__':
     app.run(debug=True, port=8050)
