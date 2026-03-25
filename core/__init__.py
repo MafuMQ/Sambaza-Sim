@@ -1,0 +1,1 @@
+"""Core economic modelling package."""
