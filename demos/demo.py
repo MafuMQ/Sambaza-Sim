@@ -330,7 +330,7 @@ def run_technological_change_comparison(config):
 
 def list_examples(database_url: str = "sqlite:///data.db"):
     """List all available examples with their titles from database."""
-    from Input_Output_Model.models.entities.TechChange import TechChangeDatabase
+    from db.repositories.tech_change_repo import TechChangeDatabase
     
     db = TechChangeDatabase(database_url=database_url)
     tech_changes = db.get_all_tech_changes()
