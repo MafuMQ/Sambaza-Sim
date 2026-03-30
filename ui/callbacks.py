@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import logging
 import plotly.graph_objects as go
-from dash import Input, Output, State, callback, html
+import plotly.express as px
+from dash import Input, Output, State, callback, html, no_update
 import dash_ag_grid as dag
 
 from ui.layout import examples_config
@@ -71,6 +72,9 @@ def update_controls(example_id):
     Output('table-fd-components', 'rowData'),
     Output('table-output-proportions', 'rowData'),
     Output('iteration-comparison-div', 'children'),
+    Output('table-demand-vector', 'rowData'),
+    Output('table-va-coefficients', 'rowData'),
+    Output('store-matrices', 'data'),
     Input('run-button', 'n_clicks'),
     State('example-selector', 'value'),
     State('input-iterations', 'value'),
@@ -81,8 +85,9 @@ def update_controls(example_id):
     State('input-corp-tax-after', 'value')
 )
 def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after):
+    empty_matrix_store = {}
     if not example_id or example_id not in examples_config:
-        return "-", {}, "-", {}, "-", {}, "-", {}, go.Figure(), go.Figure(), [], [], [], [], html.Div()
+        return "-", {}, "-", {}, "-", {}, "-", {}, go.Figure(), go.Figure(), [], [], [], [], html.Div(), [], [], empty_matrix_store
         
     config = examples_config[example_id]
     params = config['params'].copy()
@@ -172,10 +177,11 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
             
     except Exception as e:
         print(f"Simulation error: {e}")
-        return f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, go.Figure().add_annotation(text=f"Error: {e}", showarrow=False), go.Figure(), [], [], [], [], html.Div()
+        err_fig = go.Figure().add_annotation(text=f"Error: {e}", showarrow=False)
+        return f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, f"Error", {'color': 'red'}, err_fig, go.Figure(), [], [], [], [], html.Div(), [], [], empty_matrix_store
 
     if not res:
-        return "No Data", {}, "No Data", {}, "No Data", {}, "No Data", {}, go.Figure(), go.Figure(), [], [], [], [], html.Div()
+        return "No Data", {}, "No Data", {}, "No Data", {}, "No Data", {}, go.Figure(), go.Figure(), [], [], [], [], html.Div(), [], [], empty_matrix_store
 
     # Process Results
     deltas = res['deltas']
@@ -184,7 +190,14 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     isic_map = res['isic_map']
     before_history = res.get('before_history', [])
     after_history = res.get('after_history', [])
-    
+    A_before_mat = res.get('A_before')
+    A_after_mat  = res.get('A_after')
+    VA_before_vec = res.get('VA_before')
+    VA_after_vec  = res.get('VA_after')
+    L_before_mat = res.get('L_before')
+    L_after_mat  = res.get('L_after')
+    demand_vec   = res.get('demand_vector')
+
     # Determine actual iterations run
     actual_iterations = len(before_history)
     
@@ -361,4 +374,159 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
         style={'height': '400px', 'width': '100%'},
     )
 
-    return out_X, style_X, out_VA, style_VA, out_FD, style_FD, out_Tax, style_Tax, fig_va, fig_out, row_data, va_components_data, fd_components_data, output_proportions_data, iteration_comparison_div
+    # -------------------------------------------------------------------
+    # Build Demand Vector Table
+    # -------------------------------------------------------------------
+    demand_vector_data = []
+    if demand_vec is not None:
+        for i, isic in sorted([(idx, isc) for isc, idx in isic_map.items()]):
+            demand_vector_data.append({'Sector': isic, 'Demand': round(float(demand_vec[i]), 4)})
+
+    # -------------------------------------------------------------------
+    # Build VA Coefficients Table
+    # -------------------------------------------------------------------
+    va_coeff_data = []
+    if VA_before_vec is not None and VA_after_vec is not None:
+        for i, isic in sorted([(idx, isc) for isc, idx in isic_map.items()]):
+            va_coeff_data.append({
+                'Sector': isic,
+                'VA_Before': round(float(VA_before_vec[i]), 4),
+                'VA_After':  round(float(VA_after_vec[i]),  4),
+                'VA_Delta':  round(float(VA_after_vec[i] - VA_before_vec[i]), 4),
+            })
+
+    # -------------------------------------------------------------------
+    # Build matrix store (serialise numpy arrays as nested lists)
+    # -------------------------------------------------------------------
+    sector_labels = [isc for _, isc in sorted([(idx, isc) for isc, idx in isic_map.items()])]
+
+    def _mat_to_list(m):
+        return m.tolist() if m is not None else None
+
+    # Flow (transactions) matrix  Z = A * diag(X)
+    X_before_vec = before['X']
+    X_after_vec  = after['X']
+    Z_before_mat = A_before_mat * X_before_vec[np.newaxis, :] if A_before_mat is not None else None
+    Z_after_mat  = A_after_mat  * X_after_vec[np.newaxis, :]  if A_after_mat  is not None else None
+
+    matrix_store = {
+        'sectors': sector_labels,
+        'A_before': _mat_to_list(A_before_mat),
+        'A_after':  _mat_to_list(A_after_mat),
+        'L_before': _mat_to_list(L_before_mat),
+        'L_after':  _mat_to_list(L_after_mat),
+        'Z_before': _mat_to_list(Z_before_mat),
+        'Z_after':  _mat_to_list(Z_after_mat),
+    }
+
+    return (out_X, style_X, out_VA, style_VA, out_FD, style_FD, out_Tax, style_Tax,
+            fig_va, fig_out,
+            row_data, va_components_data, fd_components_data, output_proportions_data,
+            iteration_comparison_div,
+            demand_vector_data, va_coeff_data, matrix_store)
+
+
+# ---------------------------------------------------------------------------
+# Matrix visualisation callback
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output('graph-matrix-heatmap', 'figure'),
+    Output('table-matrix', 'rowData'),
+    Output('table-matrix', 'columnDefs'),
+    Output('matrix-table-title', 'children'),
+    Input('matrix-type-selector', 'value'),
+    State('store-matrices', 'data'),
+)
+def update_matrix_display(matrix_key, store):
+    if not store or not store.get('sectors'):
+        return go.Figure(), [], [], "No simulation data"
+
+    sectors = store['sectors']
+    n = len(sectors)
+
+    # Retrieve chosen matrix
+    A_before = np.array(store['A_before']) if store.get('A_before') else None
+    A_after  = np.array(store['A_after'])  if store.get('A_after')  else None
+    L_before = np.array(store['L_before']) if store.get('L_before') else None
+    L_after  = np.array(store['L_after'])  if store.get('L_after')  else None
+    Z_before = np.array(store['Z_before']) if store.get('Z_before') else None
+    Z_after  = np.array(store['Z_after'])  if store.get('Z_after')  else None
+
+    label_map = {
+        'A_before': ('Technical Coefficients A — Before', A_before),
+        'A_after':  ('Technical Coefficients A — After',  A_after),
+        'delta_A':  ('Change in Coefficients ΔA',
+                     (A_after - A_before) if (A_before is not None and A_after is not None) else None),
+        'L_before': ('Leontief Inverse L — Before', L_before),
+        'L_after':  ('Leontief Inverse L — After',  L_after),
+        'delta_L':  ('Change in Leontief ΔL',
+                     (L_after - L_before) if (L_before is not None and L_after is not None) else None),
+        'Z_before': ('Flow Table Z — Before ($)',   Z_before),
+        'Z_after':  ('Flow Table Z — After ($)',    Z_after),
+        'delta_Z':  ('Change in Flow Table ΔZ ($)',
+                     (Z_after - Z_before) if (Z_before is not None and Z_after is not None) else None),
+    }
+
+    title, matrix = label_map.get(matrix_key, ('Unknown', None))
+
+    if matrix is None:
+        empty_fig = go.Figure()
+        empty_fig.add_annotation(text="Matrix not available", showarrow=False, font=dict(size=16))
+        return empty_fig, [], [], title
+
+    # Use short labels (strip ISIC prefix noise if long)
+    short_labels = [s[:15] if len(s) > 15 else s for s in sectors]
+
+    # ---- Heatmap ----
+    is_delta = matrix_key.startswith('delta_')
+    colorscale = 'RdBu_r' if is_delta else 'Blues'
+    zmid = 0 if is_delta else None
+
+    heatmap_fig = go.Figure(go.Heatmap(
+        z=matrix,
+        x=short_labels,
+        y=short_labels,
+        colorscale=colorscale,
+        zmid=zmid,
+        colorbar=dict(title='Value'),
+        hovertemplate='Row: %{y}<br>Col: %{x}<br>Value: %{z:.4f}<extra></extra>',
+        text=[[f'{v:.3f}' for v in row] for row in matrix],
+        texttemplate='%{text}',
+        textfont=dict(size=9),
+    ))
+    heatmap_fig.update_layout(
+        title=title,
+        xaxis=dict(title='Column (buying sector)', tickangle=-45, tickfont=dict(size=10)),
+        yaxis=dict(title='Row (selling sector)', tickfont=dict(size=10), autorange='reversed'),
+        height=500,
+        margin=dict(l=100, r=40, t=60, b=120),
+    )
+
+    # ---- AgGrid table ----
+    col_defs = [{"field": "Sector", "pinned": "left", "width": 160, "sortable": False}]
+    delta_cell_style = {
+        "function": (
+            "params.value < -0.0001 ? {'color':'#e74c3c','fontWeight':'bold'} : "
+            "params.value > 0.0001 ? {'color':'#2980b9'} : ({})"
+        )
+    }
+    for lbl in short_labels:
+        col = {
+            "field": lbl,
+            "width": 90,
+            "sortable": False,
+            "valueFormatter": {"function": "d3.format(',.4f')(params.value)"},
+        }
+        if is_delta:
+            col["cellStyle"] = delta_cell_style
+        col_defs.append(col)
+
+    row_data = []
+    for i, row_label in enumerate(short_labels):
+        row = {"Sector": sectors[i]}
+        for j, col_label in enumerate(short_labels):
+            row[col_label] = round(float(matrix[i][j]), 4)
+        row_data.append(row)
+
+    return heatmap_fig, row_data, col_defs, title

@@ -585,6 +585,16 @@ def _run_simulation_impl(
     # ------------------------------------------------------------------
     # 11. Return structured result
     # ------------------------------------------------------------------
+    # Compute Leontief inverses for display (best-effort)
+    try:
+        L_before = np.linalg.inv(np.eye(n) - A_before)
+    except np.linalg.LinAlgError:
+        L_before = None
+    try:
+        L_after = np.linalg.inv(np.eye(n) - A_after)
+    except np.linalg.LinAlgError:
+        L_after = None
+
     return {
         "before": {
             "name":  before_name,
@@ -630,6 +640,14 @@ def _run_simulation_impl(
         "before_history": before_history,
         "after_history":  after_history,
         "isic_map": isic_map,
+        # Matrices for display
+        "A_before": A_before,
+        "A_after":  A_after,
+        "VA_before": VA_before,
+        "VA_after":  VA_after,
+        "L_before": L_before,
+        "L_after":  L_after,
+        "demand_vector": demand,
     }
 
 

@@ -41,6 +41,9 @@ CARD_STYLE = {
 app.layout = html.Div(
     style={'fontFamily': 'system-ui, -apple-system, sans-serif', 'padding': '20px', 'backgroundColor': '#f5f7fa', 'minHeight': '100vh'},
     children=[
+        # Client-side store for matrix data
+        dcc.Store(id='store-matrices'),
+
         html.H1('Sambaza-Sim Input-Output Model Dashboard', style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '30px'}),
         
         html.Div(
@@ -178,12 +181,9 @@ app.layout = html.Div(
                                                         defaultColDef={"sortable": True, "filter": True, "resizable": True},
                                                         dashGridOptions={"pagination": True, "paginationPageSize": 15},
                                                         style={"height": 500, "width": "100%"}
-                                                    )
-                                                ])
-                                            ]),
-                                            dcc.Tab(label='Detailed Tables', value='tab-detailed', children=[
-                                                html.Div(style={'padding': '20px'}, children=[
-                                                    html.H3("Value Added Components by Sector"),
+                                                    ),
+
+                                                    html.H3("Value Added Components by Sector", style={'marginTop': '30px'}),
                                                     dag.AgGrid(
                                                         id="table-va-components",
                                                         columnDefs=[
@@ -202,7 +202,7 @@ app.layout = html.Div(
                                                         dashGridOptions={"pagination": True, "paginationPageSize": 15},
                                                         style={"height": 400, "width": "100%"}
                                                     ),
-                                                    
+
                                                     html.H3("Final Demand Components by Sector", style={'marginTop': '30px'}),
                                                     dag.AgGrid(
                                                         id="table-fd-components",
@@ -222,7 +222,7 @@ app.layout = html.Div(
                                                         dashGridOptions={"pagination": True, "paginationPageSize": 15},
                                                         style={"height": 400, "width": "100%"}
                                                     ),
-                                                    
+
                                                     html.H3("Output Composition Ratios by Sector", style={'marginTop': '30px'}),
                                                     dag.AgGrid(
                                                         id="table-output-proportions",
@@ -240,11 +240,91 @@ app.layout = html.Div(
                                                         dashGridOptions={"pagination": True, "paginationPageSize": 15},
                                                         style={"height": 400, "width": "100%"}
                                                     ),
-                                                    
+
                                                     html.H3("Iteration-by-Iteration Comparison", style={'marginTop': '30px'}),
                                                     html.Div(id='iteration-comparison-div')
                                                 ])
-                                            ])
+                                            ]),
+                                            dcc.Tab(label='IO Matrices', value='tab-matrices', children=[
+                                                html.Div(style={'padding': '20px'}, children=[
+                                                    # Demand vector & VA coefficients side by side
+                                                    html.Div(
+                                                        style={'display': 'flex', 'gap': '20px', 'marginBottom': '30px', 'flexWrap': 'wrap'},
+                                                        children=[
+                                                            html.Div(style={'flex': '1 1 300px'}, children=[
+                                                                html.H3("Final Demand Vector"),
+                                                                dag.AgGrid(
+                                                                    id="table-demand-vector",
+                                                                    columnDefs=[
+                                                                        {"field": "Sector", "width": 200},
+                                                                        {"field": "Demand", "headerName": "Final Demand ($)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                                    ],
+                                                                    rowData=[],
+                                                                    defaultColDef={"sortable": True, "filter": True, "resizable": True},
+                                                                    style={"height": 350, "width": "100%"}
+                                                                )
+                                                            ]),
+                                                            html.Div(style={'flex': '1 1 500px'}, children=[
+                                                                html.H3("Value Added Coefficients"),
+                                                                dag.AgGrid(
+                                                                    id="table-va-coefficients",
+                                                                    columnDefs=[
+                                                                        {"field": "Sector", "width": 200},
+                                                                        {"field": "VA_Before", "headerName": "VA Coeff (Before)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                                        {"field": "VA_After", "headerName": "VA Coeff (After)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                                        {"field": "VA_Delta", "headerName": "Δ VA Coeff", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"},
+                                                                         "cellStyle": {"function": "params.value < 0 ? {'color': '#e74c3c'} : params.value > 0 ? {'color': '#27ae60'} : {}"}},
+                                                                    ],
+                                                                    rowData=[],
+                                                                    defaultColDef={"sortable": True, "filter": True, "resizable": True},
+                                                                    style={"height": 350, "width": "100%"}
+                                                                )
+                                                            ]),
+                                                        ]
+                                                    ),
+
+                                                    # Matrix selector
+                                                    html.Div(
+                                                        style={'display': 'flex', 'gap': '20px', 'alignItems': 'center', 'marginBottom': '15px', 'flexWrap': 'wrap'},
+                                                        children=[
+                                                            html.Div([
+                                                                html.Label('Matrix to display:', style={'fontWeight': 'bold', 'marginRight': '10px'}),
+                                                                dcc.Dropdown(
+                                                                    id='matrix-type-selector',
+                                                                    options=[
+                                                                        {'label': 'Technical Coefficients  A  (Before)', 'value': 'A_before'},
+                                                                        {'label': 'Technical Coefficients  A  (After)',  'value': 'A_after'},
+                                                                        {'label': 'Change in Coefficients  ΔA',          'value': 'delta_A'},
+                                                                        {'label': 'Leontief Inverse  L  (Before)',        'value': 'L_before'},
+                                                                        {'label': 'Leontief Inverse  L  (After)',         'value': 'L_after'},
+                                                                        {'label': 'Change in Leontief  ΔL',               'value': 'delta_L'},
+                                                                        {'label': 'Flow Table  Z  (Before)  — $',         'value': 'Z_before'},
+                                                                        {'label': 'Flow Table  Z  (After)  — $',          'value': 'Z_after'},
+                                                                        {'label': 'Change in Flow Table  ΔZ  — $',        'value': 'delta_Z'},
+                                                                    ],
+                                                                    value='A_before',
+                                                                    clearable=False,
+                                                                    style={'width': '380px'}
+                                                                ),
+                                                            ]),
+                                                        ]
+                                                    ),
+
+                                                    # Matrix heatmap
+                                                    dcc.Graph(id='graph-matrix-heatmap', style={'marginBottom': '20px'}),
+
+                                                    # Matrix as data table
+                                                    html.H4(id='matrix-table-title', children="Technical Coefficient Matrix (A) — Before"),
+                                                    dag.AgGrid(
+                                                        id="table-matrix",
+                                                        columnDefs=[],
+                                                        rowData=[],
+                                                        defaultColDef={"sortable": False, "filter": False, "resizable": True, "width": 100},
+                                                        dashGridOptions={"pagination": False},
+                                                        style={"height": 500, "width": "100%"}
+                                                    ),
+                                                ])
+                                            ]),
                                         ])
                                     ]
                                 )
