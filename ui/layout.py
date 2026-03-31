@@ -9,6 +9,7 @@ if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
 from pipeline.load_tech_changes import rebuild_examples_dict_from_db
+from db.repositories.good_repo import GoodsDatabase
 
 # Database URL
 db_path = os.path.join(root_dir, 'data.db')
@@ -24,6 +25,18 @@ except Exception as e:
     examples_config = {}
     example_options = []
     default_example = None
+
+# Load sector (ISIC) options for tech-change builder
+try:
+    goods_db = GoodsDatabase(database_url=db_url)
+    all_goods = goods_db.get_all_goods()
+    sector_options = [
+        {'label': f"{g.name} ({g.isic})", 'value': g.isic}
+        for g in all_goods
+    ]
+except Exception as e:
+    print(f"Error loading sector options: {e}")
+    sector_options = []
 
 # Initialize the app
 app = Dash(__name__)
@@ -43,6 +56,8 @@ app.layout = html.Div(
     children=[
         # Client-side store for matrix data
         dcc.Store(id='store-matrices'),
+        # Store for user-defined tech change operations
+        dcc.Store(id='store-tech-changes', data=[]),
 
         html.H1('Sambaza-Sim Input-Output Model Dashboard', style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '30px'}),
         
@@ -97,6 +112,92 @@ app.layout = html.Div(
                         
                         html.Label('Corporate Tax Rate (After):'),
                         dcc.Slider(id='input-corp-tax-after', min=0, max=1, step=0.01, value=0.0, tooltip={"placement": "bottom", "always_visible": False}),
+                        
+                        html.Hr(),
+                        html.H4('Technology Changes', style={'color': '#34495e'}),
+                        html.P('Build custom tech changes to apply on top of the selected scenario.',
+                               style={'fontSize': '0.85em', 'color': '#7f8c8d', 'marginBottom': '10px'}),
+                        
+                        # Change type selector
+                        html.Label('Change Type:'),
+                        dcc.Dropdown(
+                            id='tc-change-type',
+                            options=[
+                                {'label': 'Change all inputs of a sector', 'value': 'add_sector_change'},
+                                {'label': 'Change usage of an input across all sectors', 'value': 'add_input_change'},
+                                {'label': 'Change a specific coefficient', 'value': 'add_coefficient_change'},
+                            ],
+                            value='add_sector_change',
+                            clearable=False,
+                            style={'marginBottom': '10px'}
+                        ),
+                        
+                        # Sector selector (producing sector / column)
+                        html.Div(id='tc-sector-container', children=[
+                            html.Label('Sector (column in A matrix):'),
+                            dcc.Dropdown(
+                                id='tc-sector',
+                                options=sector_options,
+                                placeholder='Select sector...',
+                                style={'marginBottom': '10px'}
+                            ),
+                        ]),
+                        
+                        # Input sector selector (input / row) — shown for coefficient_change and input_change
+                        html.Div(id='tc-input-sector-container', children=[
+                            html.Label('Input Sector (row in A matrix):'),
+                            dcc.Dropdown(
+                                id='tc-input-sector',
+                                options=sector_options,
+                                placeholder='Select input sector...',
+                                style={'marginBottom': '10px'}
+                            ),
+                        ]),
+                        
+                        # Operation type
+                        html.Label('Operation:'),
+                        dcc.Dropdown(
+                            id='tc-operation',
+                            options=[
+                                {'label': 'Multiply (e.g. 0.8 = 20% reduction)', 'value': 'multiply'},
+                                {'label': 'Add (e.g. -0.05)', 'value': 'add'},
+                                {'label': 'Set (absolute value)', 'value': 'set'},
+                            ],
+                            value='multiply',
+                            clearable=False,
+                            style={'marginBottom': '10px'}
+                        ),
+                        
+                        # Value
+                        html.Label('Value:'),
+                        dcc.Input(id='tc-value', type='number', value=0.8, step=0.01, style={'width': '100%', 'marginBottom': '10px'}),
+                        
+                        # Add button
+                        html.Button(
+                            '+ Add Change',
+                            id='tc-add-button',
+                            n_clicks=0,
+                            style={
+                                'width': '100%', 'padding': '8px', 'backgroundColor': '#27ae60',
+                                'color': 'white', 'border': 'none', 'borderRadius': '4px',
+                                'fontSize': '14px', 'cursor': 'pointer', 'marginBottom': '10px'
+                            }
+                        ),
+                        
+                        # Clear all button
+                        html.Button(
+                            'Clear All Changes',
+                            id='tc-clear-button',
+                            n_clicks=0,
+                            style={
+                                'width': '100%', 'padding': '6px', 'backgroundColor': '#e74c3c',
+                                'color': 'white', 'border': 'none', 'borderRadius': '4px',
+                                'fontSize': '12px', 'cursor': 'pointer', 'marginBottom': '10px'
+                            }
+                        ),
+                        
+                        # Display of current changes
+                        html.Div(id='tc-changes-display', style={'marginBottom': '10px'}),
                         
                         html.Button(
                             'Run Simulation', 

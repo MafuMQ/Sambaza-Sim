@@ -3,12 +3,130 @@ import pandas as pd
 import logging
 import plotly.graph_objects as go
 import plotly.express as px
-from dash import Input, Output, State, callback, html, no_update
+from dash import Input, Output, State, callback, html, no_update, ctx
 import dash_ag_grid as dag
 
-from ui.layout import examples_config
+from ui.layout import examples_config, sector_options
 from ui.charts import build_output_chart, build_va_chart
 from core.simulation import run_simulation
+
+
+# ---------------------------------------------------------------------------
+# Tech-change builder: show/hide fields based on change type
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output('tc-sector-container', 'style'),
+    Output('tc-input-sector-container', 'style'),
+    Input('tc-change-type', 'value'),
+)
+def toggle_tc_fields(change_type):
+    """Show/hide sector dropdowns depending on the selected change type."""
+    show = {'display': 'block'}
+    hide = {'display': 'none'}
+    if change_type == 'add_sector_change':
+        return show, hide
+    elif change_type == 'add_input_change':
+        return hide, show
+    else:  # add_coefficient_change
+        return show, show
+
+
+# ---------------------------------------------------------------------------
+# Tech-change builder: add / clear operations in the store
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output('store-tech-changes', 'data'),
+    Input('tc-add-button', 'n_clicks'),
+    Input('tc-clear-button', 'n_clicks'),
+    State('store-tech-changes', 'data'),
+    State('tc-change-type', 'value'),
+    State('tc-sector', 'value'),
+    State('tc-input-sector', 'value'),
+    State('tc-operation', 'value'),
+    State('tc-value', 'value'),
+    prevent_initial_call=True,
+)
+def manage_tech_changes(add_clicks, clear_clicks, current_changes, change_type, sector, input_sector, operation, value):
+    triggered = ctx.triggered_id
+    if triggered == 'tc-clear-button':
+        return []
+
+    # Validate inputs for the add action
+    if value is None:
+        return current_changes or []
+
+    entry = {
+        'method': change_type,
+        'params': {
+            'change_type': operation,
+            'value': float(value),
+        }
+    }
+
+    if change_type == 'add_sector_change':
+        if not sector:
+            return current_changes or []
+        entry['params']['sector_idx'] = sector
+    elif change_type == 'add_input_change':
+        if not input_sector:
+            return current_changes or []
+        entry['params']['input_sector_idx'] = input_sector
+    elif change_type == 'add_coefficient_change':
+        if not sector or not input_sector:
+            return current_changes or []
+        entry['params']['sector_idx'] = sector
+        entry['params']['input_sector_idx'] = input_sector
+
+    changes = list(current_changes or [])
+    changes.append(entry)
+    return changes
+
+
+# ---------------------------------------------------------------------------
+# Tech-change builder: render the list of pending changes
+# ---------------------------------------------------------------------------
+
+METHOD_LABELS = {
+    'add_sector_change': 'All inputs of',
+    'add_input_change': 'Usage of',
+    'add_coefficient_change': 'Coefficient',
+}
+
+@callback(
+    Output('tc-changes-display', 'children'),
+    Input('store-tech-changes', 'data'),
+)
+def render_tc_changes(changes):
+    if not changes:
+        return html.P('No changes added yet.', style={'fontSize': '0.85em', 'color': '#95a5a6'})
+
+    items = []
+    for i, ch in enumerate(changes):
+        method = ch['method']
+        p = ch['params']
+        op = p.get('change_type', '?')
+        val = p.get('value', '?')
+
+        if method == 'add_sector_change':
+            desc = f"{METHOD_LABELS[method]} sector {p.get('sector_idx', '?')}: {op} {val}"
+        elif method == 'add_input_change':
+            desc = f"{METHOD_LABELS[method]} input {p.get('input_sector_idx', '?')} everywhere: {op} {val}"
+        else:
+            desc = f"{METHOD_LABELS[method]} [{p.get('input_sector_idx', '?')} → {p.get('sector_idx', '?')}]: {op} {val}"
+
+        items.append(
+            html.Div(
+                f"#{i+1}  {desc}",
+                style={
+                    'fontSize': '0.8em', 'padding': '4px 8px',
+                    'backgroundColor': '#eaf4fb', 'borderRadius': '4px',
+                    'marginBottom': '4px', 'border': '1px solid #aed6f1',
+                }
+            )
+        )
+    return html.Div(items)
 
 
 @callback(
@@ -82,9 +200,10 @@ def update_controls(example_id):
     State('input-income-tax-before', 'value'),
     State('input-income-tax-after', 'value'),
     State('input-corp-tax-before', 'value'),
-    State('input-corp-tax-after', 'value')
+    State('input-corp-tax-after', 'value'),
+    State('store-tech-changes', 'data'),
 )
-def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after):
+def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after, ui_tech_changes):
     empty_matrix_store = {}
     if not example_id or example_id not in examples_config:
         return "-", {}, "-", {}, "-", {}, "-", {}, go.Figure(), go.Figure(), [], [], [], [], html.Div(), [], [], empty_matrix_store
@@ -115,10 +234,63 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     params.setdefault('before_name', 'Before Change')
     params.setdefault('after_name', 'After Change')
     
+    # Build TechnologicalChange from UI-defined operations (if any)
+    ui_tech_change = None
+    if ui_tech_changes:
+        from pipeline.load_tech_changes import build_tech_change_from_spec
+        spec = {
+            "name": "Custom UI Tech Change",
+            "description": "User-defined technology changes from the dashboard",
+            "changes": ui_tech_changes,
+        }
+        # isic_map not needed yet; build_tech_change_from_spec resolves ISIC codes
+        # via the method calls which accept string sector_idx directly
+        ui_tech_change = build_tech_change_from_spec(spec, {})
+    
     # Build inputs for simulation
     # If tech change comparison, we need to extract tech_change_builder
     try:
-        if is_tech_comparison:
+        if ui_tech_change is not None:
+            # User built custom tech changes in the UI — apply them
+            from core.io_matrix import build_io_matrix
+            A_baseline, VA_baseline, isic_map_curr = build_io_matrix(demoDB=False, loggingLevel=logging.WARNING)
+
+            # If the selected example also has a tech change, apply it first
+            combined_tech = ui_tech_change
+            if is_tech_comparison:
+                tech_config = params['tech_change_config']
+                example_tc = tech_config['tech_change_builder'](isic_map_curr)
+                # Merge: apply example changes first, then UI changes on top
+                combined_tech.matrix_changes = example_tc.matrix_changes + combined_tech.matrix_changes
+
+            A_changed, VA_changed = combined_tech.apply(A_baseline, VA_baseline, isic_map_curr)
+
+            final_demand = np.array(params['final_demand'], dtype=float) if params.get('final_demand') else None
+
+            res = run_simulation(
+                final_demand=final_demand,
+                uniform_demand=params.get('uniform_demand') if final_demand is None else None,
+                A_before=A_baseline,
+                A_after=A_changed,
+                VA_before=VA_baseline,
+                VA_after=VA_changed,
+                isic_map=isic_map_curr,
+                before_name="Baseline",
+                after_name="After Tech Change",
+                iterations=iterations,
+                demand_distribution=params.get('demand_distribution', 'proportional'),
+                income_tax_rate_before=inc_before,
+                income_tax_rate_after=inc_after,
+                corporate_tax_rate_before=corp_before,
+                corporate_tax_rate_after=corp_after,
+                income_tax_applies_to=params.get('income_tax_applies_to', 'bonusWages'),
+                consumption_proportions=params.get('consumption_proportions', None),
+                investment_proportions=params.get('investment_proportions', None),
+                government_proportions=params.get('government_proportions', None),
+                consumption_rate=params.get('consumption_rate', 1.0),
+                solver_type=solver,
+            )
+        elif is_tech_comparison:
             final_demand = np.array(params['final_demand'], dtype=float)
             tech_config = params['tech_change_config']
             use_multi_level = params.get('use_multi_level', False)
