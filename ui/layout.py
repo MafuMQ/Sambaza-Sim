@@ -81,7 +81,16 @@ app.layout = html.Div(
                         
                         html.Div(id='example-description', style={'marginBottom': '10px', 'fontSize': '0.9em', 'color': '#7f8c8d'}),
                         
-                        html.Div(id='example-fd-info', style={'marginBottom': '20px', 'fontSize': '0.9em'}),
+                        html.Label('Total Final Demand ($):'),
+                        dcc.Input(
+                            id='input-total-fd',
+                            type='number',
+                            min=0,
+                            step=1.0,
+                            placeholder='Enter total final demand...',
+                            style={'width': '100%', 'marginBottom': '4px'}
+                        ),
+                        html.Div(id='input-total-fd-hint', style={'fontSize': '0.8em', 'color': '#7f8c8d', 'marginBottom': '15px'}),
                         
                         html.Hr(),
                         html.H4('Parameters', style={'color': '#34495e'}),

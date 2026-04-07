@@ -131,7 +131,9 @@ def render_tc_changes(changes):
 
 @callback(
     Output('example-description', 'children'),
-    Output('example-fd-info', 'children'),
+    Output('input-total-fd', 'value'),
+    Output('input-total-fd', 'disabled'),
+    Output('input-total-fd-hint', 'children'),
     Output('input-solver', 'value'),
     Output('input-income-tax-before', 'value'),
     Output('input-income-tax-after', 'value'),
@@ -141,7 +143,7 @@ def render_tc_changes(changes):
 )
 def update_controls(example_id):
     if not example_id or example_id not in examples_config:
-        return "", html.Div(), 'supply_curves', 0.0, 0.0, 0.0, 0.0
+        return "", None, True, "", 'supply_curves', 0.0, 0.0, 0.0, 0.0
     
     config = examples_config[example_id]
     desc_lines = config.get('description', [])
@@ -161,18 +163,17 @@ def update_controls(example_id):
     corp_before = params.get('corporate_tax_rate_before', 0.0)
     corp_after = params.get('corporate_tax_rate_after', corp_before)
     
-    # Compute total final demand for the baseline
     fd_raw = params.get('final_demand', None)
     if fd_raw is not None:
-        fd_total = np.array(fd_raw, dtype=float).sum()
-        fd_info = html.Div([
-            html.Span('Total Final Demand: ', style={'color': '#7f8c8d'}),
-            html.Strong(f"${fd_total:,.2f}", style={'color': '#2c3e50'})
-        ], style={'padding': '8px 12px', 'backgroundColor': '#eaf4fb', 'borderRadius': '4px', 'border': '1px solid #aed6f1'})
+        fd_total = round(float(np.array(fd_raw, dtype=float).sum()), 2)
+        fd_disabled = False
+        fd_hint = "Sector demands will be scaled proportionally to match this total."
     else:
-        fd_info = html.Div()
+        fd_total = None
+        fd_disabled = True
+        fd_hint = "FD customization is available for vector-based demand scenarios only."
     
-    return desc, fd_info, solver, inc_before, inc_after, corp_before, corp_after
+    return desc, fd_total, fd_disabled, fd_hint, solver, inc_before, inc_after, corp_before, corp_after
 
 @callback(
     Output('summary-output', 'children'),
@@ -202,14 +203,22 @@ def update_controls(example_id):
     State('input-corp-tax-before', 'value'),
     State('input-corp-tax-after', 'value'),
     State('store-tech-changes', 'data'),
+    State('input-total-fd', 'value'),
 )
-def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after, ui_tech_changes):
+def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after, ui_tech_changes, total_fd_override):
     empty_matrix_store = {}
     if not example_id or example_id not in examples_config:
         return "-", {}, "-", {}, "-", {}, "-", {}, go.Figure(), go.Figure(), [], [], [], [], html.Div(), [], [], empty_matrix_store
         
     config = examples_config[example_id]
     params = config['params'].copy()
+    
+    # Apply total FD override — rescale the demand vector proportionally
+    if total_fd_override is not None and total_fd_override > 0 and 'final_demand' in params:
+        old_fd = np.array(params['final_demand'], dtype=float)
+        old_total = old_fd.sum()
+        if old_total > 0:
+            params['final_demand'] = (old_fd * (total_fd_override / old_total)).tolist()
     
     # Check if this is a tech comparison
     is_tech_comparison = params.get('is_tech_comparison', False)
