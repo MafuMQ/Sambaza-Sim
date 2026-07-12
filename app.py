@@ -15,8 +15,10 @@ if not db_file.exists():
     setup_data(source="data/ex2", overwrite_existing_data=True)
     print("Data setup complete.\n")
 
-from ui.layout import app
-from ui import callbacks  # registers callbacks as side-effect
+from presentation.layout import app
+from presentation import callbacks  # registers callbacks as side-effect
 
 if __name__ == '__main__':
     app.run(debug=True, port=8050)
+
+

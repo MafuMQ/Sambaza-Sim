@@ -46,3 +46,5 @@ class LeontiefSolver(BaseSolver):
         output = self._L @ demand
         prices = np.ones(self._n)
         return output, prices
+
+

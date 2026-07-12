@@ -1,11 +1,13 @@
 from __future__ import annotations
 import logging
-from core.io_matrix import (evaluate_productions_price, build_supply_curves, build_io_matrix)
+from pipeline.builders.level3_productions import evaluate_productions_price
+from pipeline.builders.level2_curves import build_supply_curves
+from pipeline.builders.level1_matrix import build_io_matrix
 from core.isic_utils import evaluate_goods_isic
-from db.repositories.good_repo import GoodsDatabase
-from db.repositories.supply_curve_repo import SupplyCurveDatabase
-from db.repositories.production_repo import ProductionsDatabase
-from db.repositories.tech_change_repo import TechChangeDatabase
+from pipeline.db.repositories.good_repo import GoodsDatabase
+from pipeline.db.repositories.supply_curve_repo import SupplyCurveDatabase
+from pipeline.db.repositories.production_repo import ProductionsDatabase
+from pipeline.db.repositories.tech_change_repo import TechChangeDatabase
 import random
 from pathlib import Path
 import time
@@ -14,6 +16,17 @@ import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+from core.io_matrix import IOModel
+
+def get_calibrated_model(demoDB: bool = False, loggingLevel: int = logging.WARNING) -> tuple[IOModel, dict]:
+    """
+    Acts as the strict gatekeeper: loads data from DB, formats it into standardized NumPy arrays,
+    and returns a pre-calibrated stateless IOModel along with the ISIC map.
+    """
+    A_mon, VA_mon, isic_map = build_io_matrix(demoDB=demoDB, loggingLevel=loggingLevel)
+    model = IOModel(A=A_mon, VA_coeffs=VA_mon)
+    return model, isic_map
 
 from faker import Faker
 fake = Faker()
@@ -187,7 +200,7 @@ def load_tech_changes_if_available(source_dir: str) -> int:
     --------
     int : Number of tech changes loaded
     """
-    from pipeline.load_tech_changes import load_tech_changes_from_csv
+    from simulators.tech_change_loader import load_tech_changes_from_csv
     
     source_path = Path(source_dir)
     
@@ -367,3 +380,5 @@ def setup_data(source=None, overwrite_existing_data=False, for_custom_taxes=Fals
         else:
             logging.info(f"Loading data from source: {source}")
             load_csv_data(source)
+
+

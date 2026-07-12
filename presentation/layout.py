@@ -8,8 +8,8 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-from pipeline.load_tech_changes import rebuild_examples_dict_from_db
-from db.repositories.good_repo import GoodsDatabase
+from simulators.tech_change_loader import rebuild_examples_dict_from_db
+from pipeline.db.repositories.good_repo import GoodsDatabase
 
 # Database URL
 db_path = os.path.join(root_dir, 'data.db')
@@ -446,3 +446,5 @@ app.layout = html.Div(
         )
     ]
 )
+
+

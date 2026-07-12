@@ -9,7 +9,7 @@ Extracted from the original Evaluators.py.
 import logging
 from typing import Dict
 
-from db.repositories.good_repo import GoodsDatabase
+from pipeline.db.repositories.good_repo import GoodsDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -72,3 +72,5 @@ def evaluate_goods_isic() -> None:
     for good in all_goods:
         result = evaluate_good_isic(good.isic)  # type: ignore[arg-type]
         gdb.update_good(int(good.id), **result)  # type: ignore[arg-type]
+
+

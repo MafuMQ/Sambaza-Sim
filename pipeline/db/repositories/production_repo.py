@@ -11,7 +11,7 @@ from sqlalchemy.orm import declarative_base
 from typing import Optional, List
 import logging
 
-from db.base import DatabaseBase
+from pipeline.db.base import DatabaseBase
 
 logger = logging.getLogger(__name__)
 Base = declarative_base()
@@ -198,3 +198,5 @@ class ProductionsDatabase(DatabaseBase):
         except Exception as exc:
             logger.error(f"Failed to delete production with ID {production_id}: {exc}")
             return False
+
+

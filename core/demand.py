@@ -192,3 +192,5 @@ def distribute_demand(
     if initial_demand_proportions is not None:
         return initial_demand_proportions * amount
     return np.full(n, amount / n)
+
+

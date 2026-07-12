@@ -250,7 +250,7 @@ def load_supply_curves_from_db(isic_map: Dict[str, int]) -> Dict[str, List[Dict]
     dict
         Mapping from ISIC code → tier list.
     """
-    from db.repositories.supply_curve_repo import SupplyCurveDatabase
+    from pipeline.db.repositories.supply_curve_repo import SupplyCurveDatabase
 
     scdb = SupplyCurveDatabase()
     all_curves = scdb.get_all_supply_curves()
@@ -268,3 +268,5 @@ def load_supply_curves_from_db(isic_map: Dict[str, int]) -> Dict[str, List[Dict]
         supply_data[good.isic] = tiers
 
     return supply_data
+
+

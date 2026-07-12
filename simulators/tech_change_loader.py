@@ -1,4 +1,4 @@
-﻿"""
+"""
 Database Loading Utilities for Tech Changes
 ============================================
 
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import json
 
-from db.repositories.tech_change_repo import TechChangeDatabase
+from pipeline.db.repositories.tech_change_repo import TechChangeDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def build_tech_change_from_spec(spec: Dict, isic_map: Dict) -> 'TechnologicalCha
     --------
     TechnologicalChange object with the specified changes
     """
-    from core.tech_change import TechnologicalChange
+    from simulators.tech_change import TechnologicalChange
     
     tech_change = TechnologicalChange(
         name=spec.get("name", "Unnamed Change"),
@@ -656,7 +656,7 @@ if __name__ == "__main__":
     total = load_tech_changes_from_csv()
     
     if total > 0:
-        print(f"\n✓ Successfully loaded {total} tech change configurations")
+        print(f"\n? Successfully loaded {total} tech change configurations")
         
         # Test retrieval
         print("\nTesting database retrieval...")
@@ -669,5 +669,7 @@ if __name__ == "__main__":
         examples = rebuild_examples_dict_from_db()
         print(f"  Successfully rebuilt {len(examples)} examples")
     else:
-        print("\n✗ Failed to load tech changes")
+        print("\n? Failed to load tech changes")
+
+
 

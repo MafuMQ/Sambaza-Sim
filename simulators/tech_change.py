@@ -1,4 +1,4 @@
-﻿"""
+"""
 Technological Change Module for Input-Output Analysis
 ======================================================
 
@@ -14,17 +14,17 @@ Changes can be applied at three levels, ordered by depth:
     Changes to supply curve tiers (capacities, prices, value added by tier).
     Requires rebuilding the coefficient matrix from the modified supply/flow data.
     Use for: Capacity expansion, cost structure changes, market entry/exit.
-    Rebuild chain: Curves → Coefficient Matrix
+    Rebuild chain: Curves ? Coefficient Matrix
 
 **Level 3 - Productions Level (Micro Level)**:
     Changes to underlying production records (inputs, efficiencies, value added).
     Requires rebuilding supply curves from modified productions, then rebuilding
     the coefficient matrix from those curves. Full cascade rebuild.
     Use for: Firm-level technology adoption, process improvements.
-    Rebuild chain: Productions → Supply Curves → Coefficient Matrix
+    Rebuild chain: Productions ? Supply Curves ? Coefficient Matrix
 
 Data Flow (deepest to shallowest):
-    Productions (firms) → Supply Curves (flow matrix) → Coefficient Matrix (A matrix)
+    Productions (firms) ? Supply Curves (flow matrix) ? Coefficient Matrix (A matrix)
 
 Key Concepts:
 -------------
@@ -40,7 +40,7 @@ Example Use Cases:
 
 Usage:
 ------
-    from core.tech_change import TechnologicalChange
+    from simulators.tech_change import TechnologicalChange
 
     # === Level 1: Matrix-level change (direct, no rebuild) ===
     tech = TechnologicalChange(name="Energy Efficiency")
@@ -80,7 +80,7 @@ Usage:
         change_type="add",
         value=10  # +10 efficiency points
     )
-    # Full cascade: productions → supply curves → coefficient matrix
+    # Full cascade: productions ? supply curves ? coefficient matrix
     result = tech.apply_to_productions(ptdb, scdb)
     A_new, VA_new = result['A_matrix'], result['VA_vector']
 """
@@ -108,12 +108,12 @@ class TechnologicalChange:
     
     1. Matrix Level: Direct changes to A matrix coefficients (fastest, no rebuild)
     2. Curves Level: Changes to supply curve tiers (rebuilds coefficient matrix)
-    3. Productions Level: Changes to production records (rebuilds curves → coefficient matrix)
+    3. Productions Level: Changes to production records (rebuilds curves ? coefficient matrix)
     
     You can mix changes from different levels in the same TechnologicalChange object;
-    they will be applied in cascade order: productions → curves → matrix.
+    they will be applied in cascade order: productions ? curves ? matrix.
     
-    Data flow: Productions → Supply Curves → Coefficient Matrix
+    Data flow: Productions ? Supply Curves ? Coefficient Matrix
     """
     
     def __init__(self, name: str, description: str = ""):
@@ -260,8 +260,8 @@ class TechnologicalChange:
         })
     
     # ==========================================================================
-    # Level 3: Production-Level Changes (Micro Level) — deepest
-    # Rebuild chain: Productions → Supply Curves → Coefficient Matrix
+    # Level 3: Production-Level Changes (Micro Level) � deepest
+    # Rebuild chain: Productions ? Supply Curves ? Coefficient Matrix
     # ==========================================================================
     
     def add_production_input_change(self,
@@ -417,7 +417,7 @@ class TechnologicalChange:
     
     # ==========================================================================
     # Level 2: Curve-Level Changes (Market Level)
-    # Rebuild chain: Supply Curves → Coefficient Matrix
+    # Rebuild chain: Supply Curves ? Coefficient Matrix
     # ==========================================================================
     
     def add_curve_tier_change(self,
@@ -745,7 +745,7 @@ class TechnologicalChange:
         """
         Apply production-level changes to a ProductionsDatabase.
         
-        Level 3 rebuild chain: Productions → Supply Curves → Coefficient Matrix
+        Level 3 rebuild chain: Productions ? Supply Curves ? Coefficient Matrix
         
         This modifies production records and cascades the rebuild:
         1. Modified productions are used to rebuild supply curves
@@ -861,7 +861,7 @@ class TechnologicalChange:
             'isic_map': None
         }
         
-        # Cascade rebuild: Productions → Supply Curves → Coefficient Matrix
+        # Cascade rebuild: Productions ? Supply Curves ? Coefficient Matrix
         if rebuild_curves:
             curves_result = self._rebuild_curves_from_productions(ptdb, scdb, modified_productions, loggingLevel)
             result['supply_data'] = curves_result.get('supply_data')
@@ -872,7 +872,7 @@ class TechnologicalChange:
                     scdb, ptdb, curves_result.get('supply_data', {}), loggingLevel
                 )
                 result.update(matrix_result)
-                logger.info(f"Cascade rebuild complete: productions → curves → coefficient matrix")
+                logger.info(f"Cascade rebuild complete: productions ? curves ? coefficient matrix")
         
         logger.info(f"Production-level changes applied: {len(modified_productions)} productions modified")
         return result
@@ -883,7 +883,7 @@ class TechnologicalChange:
         Rebuild supply curve data from production records, incorporating modifications.
         
         This is the first step of the Level 3 cascade:
-        Productions → **Supply Curves** → Coefficient Matrix
+        Productions ? **Supply Curves** ? Coefficient Matrix
         
         Matches the existing project's curve builder structure:
         - Sorts productions by merit order (cheapest price first)
@@ -923,7 +923,7 @@ class TechnologicalChange:
             # Get all productions for this good
             prods = ptdb.get_all_productions_by_good(int(curve.id_number))
             if not prods:
-                # No productions — use empty tiers
+                # No productions � use empty tiers
                 supply_data[isic] = {
                     "price": {"tiers": []},
                     "total_inputs_cost": {"tiers": []},
@@ -995,7 +995,7 @@ class TechnologicalChange:
         Rebuild the A matrix and VA vector from supply curve / flow data.
         
         This is the final step of the rebuild cascade:
-        Productions → Supply Curves → **Coefficient Matrix**
+        Productions ? Supply Curves ? **Coefficient Matrix**
         
         Key insight: Supply curves store aggregate costs (price, total_inputs_cost, 
         total_value_added) but NOT the detailed input breakdown. The input breakdown 
@@ -1076,7 +1076,7 @@ class TechnologicalChange:
                 VA_mon[col_idx] = float(va_value) / output_price
             
             # Get detailed input breakdown from productions database
-            # (Supply curves don't store this — only aggregate costs)
+            # (Supply curves don't store this � only aggregate costs)
             if ptdb is None:
                 continue
             
@@ -1112,7 +1112,7 @@ class TechnologicalChange:
         """
         Apply curve-level changes to supply curve data and rebuild the coefficient matrix.
         
-        Level 2 rebuild chain: Curves → Coefficient Matrix
+        Level 2 rebuild chain: Curves ? Coefficient Matrix
         
         This modifies supply curve tiers and then rebuilds the A matrix and VA vector
         from the modified flow data.
@@ -1477,4 +1477,6 @@ def create_productivity_improvement(sector_idx: int, productivity_gain: float = 
     )
     
     return tech_change
+
+
 

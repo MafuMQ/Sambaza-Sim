@@ -8,7 +8,7 @@ four entity database classes in the original codebase.
 
 Usage
 -----
-    from db.base import DatabaseBase
+    from pipeline.db.base import DatabaseBase
 
     class GoodsDatabase(DatabaseBase):
         def __init__(self, database_url="sqlite:///data.db", echo=False):
@@ -71,3 +71,5 @@ class DatabaseBase:
             raise
         finally:
             session.close()
+
+

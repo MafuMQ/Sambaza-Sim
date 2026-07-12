@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import dash
 from dash import Dash, html, dcc, callback, Output, Input, State
@@ -167,19 +167,19 @@ app.layout = html.Div(
                                                             {"field": "Sector", "width": 250},
                                                             {"field": "Output_Before", "headerName": "Output (Before)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
                                                             {"field": "Output_After", "headerName": "Output (After)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
-                                                            {"field": "Output_Delta", "headerName": "Δ Output", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
+                                                            {"field": "Output_Delta", "headerName": "? Output", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
                                                             {"field": "VA_Before", "headerName": "VA (Before)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
                                                             {"field": "VA_After", "headerName": "VA (After)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
-                                                            {"field": "VA_Delta", "headerName": "Δ VA", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
+                                                            {"field": "VA_Delta", "headerName": "? VA", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
                                                             {"field": "FD_Before", "headerName": "FD (Before)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
                                                             {"field": "FD_After", "headerName": "FD (After)", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
-                                                            {"field": "FD_Delta", "headerName": "Δ FD", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
+                                                            {"field": "FD_Delta", "headerName": "? FD", "valueFormatter": {"function": "d3.format(',.2f')(params.value)"}},
                                                             {"field": "VA_Output_Before", "headerName": "VA/Output (Before)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
                                                             {"field": "VA_Output_After", "headerName": "VA/Output (After)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
-                                                            {"field": "VA_Output_Delta", "headerName": "Δ VA/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "VA_Output_Delta", "headerName": "? VA/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
                                                             {"field": "Int_Output_Before", "headerName": "Int/Output (Before)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
                                                             {"field": "Int_Output_After", "headerName": "Int/Output (After)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
-                                                            {"field": "Int_Output_Delta", "headerName": "Δ Int/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}}
+                                                            {"field": "Int_Output_Delta", "headerName": "? Int/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}}
                                                         ],
                                                         rowData=[],
                                                         defaultColDef={"sortable": True, "filter": True, "resizable": True},
@@ -237,10 +237,10 @@ app.layout = html.Div(
                                                             {"field": "Sector", "width": 200, "pinned": "left"},
                                                             {"field": "VA_Output_Before", "headerName": "VA/Output (Before)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
                                                             {"field": "VA_Output_After", "headerName": "VA/Output (After)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
-                                                            {"field": "VA_Output_Delta", "headerName": "Δ VA/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "VA_Output_Delta", "headerName": "? VA/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
                                                             {"field": "Int_Output_Before", "headerName": "Int/Output (Before)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
                                                             {"field": "Int_Output_After", "headerName": "Int/Output (After)", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
-                                                            {"field": "Int_Output_Delta", "headerName": "Δ Int/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
+                                                            {"field": "Int_Output_Delta", "headerName": "? Int/Output", "valueFormatter": {"function": "d3.format(',.4f')(params.value)"}},
                                                         ],
                                                         rowData=[],
                                                         defaultColDef={"sortable": True, "filter": True, "resizable": True},
@@ -671,4 +671,6 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
 
 if __name__ == '__main__':
     app.run(debug=True, port=8050)
+
+
 

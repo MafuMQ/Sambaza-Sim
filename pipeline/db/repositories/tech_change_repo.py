@@ -13,7 +13,7 @@ from typing import Optional, List, Dict, Any
 import logging
 import json as json_lib
 
-from db.base import DatabaseBase
+from pipeline.db.base import DatabaseBase
 
 logger = logging.getLogger(__name__)
 Base = declarative_base()
@@ -273,3 +273,5 @@ def get_tech_change_db(
 ) -> TechChangeDatabase:
     """Return a TechChangeDatabase instance."""
     return TechChangeDatabase(database_url=database_url)
+
+

@@ -39,3 +39,5 @@ class BaseSolver(ABC):
             Market prices by sector (1.0 for Leontief; supply-curve prices
             for the dynamic equilibrium solver).
         """
+
+

@@ -58,3 +58,5 @@ def build_va_chart(df: pd.DataFrame, actual_iterations: int) -> go.Figure:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     return fig_va
+
+

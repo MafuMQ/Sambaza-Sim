@@ -35,8 +35,8 @@ def build_va_component_matrix(isic_map: Dict[str, int]) -> Dict[str, np.ndarray]
         Keys: ``minWages``, ``bonusWages``, ``wages``, ``surplus``.
         Values: np.ndarray of shape ``(n,)``  ($ per $ of output).
     """
-    from db.repositories.production_repo import ProductionsDatabase
-    from db.repositories.good_repo import GoodsDatabase
+    from pipeline.db.repositories.production_repo import ProductionsDatabase
+    from pipeline.db.repositories.good_repo import GoodsDatabase
 
     ptdb = ProductionsDatabase()
     gdb = GoodsDatabase()
@@ -150,3 +150,5 @@ def apply_taxes(
         "corporate_tax":   corporate_tax,
         "total_tax":       total_tax,
     }
+
+
