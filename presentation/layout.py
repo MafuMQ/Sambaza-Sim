@@ -15,28 +15,22 @@ from pipeline.db.repositories.good_repo import GoodsDatabase
 db_path = os.path.join(root_dir, 'data.db')
 db_url = f"sqlite:///{db_path}"
 
-# Load examples
-try:
-    examples_config = rebuild_examples_dict_from_db(db_url)
-    example_options = [{'label': f"Example {k}: {v['title']}", 'value': k} for k, v in examples_config.items()]
-    default_example = list(examples_config.keys())[0] if examples_config else None
-except Exception as e:
-    print(f"Error loading examples: {e}")
-    examples_config = {}
-    example_options = []
-    default_example = None
+# Helper functions to get fresh data from the DB for callbacks
+def get_examples_config():
+    try:
+        return rebuild_examples_dict_from_db(db_url)
+    except Exception as e:
+        print(f"Error loading examples: {e}")
+        return {}
 
-# Load sector (ISIC) options for tech-change builder
-try:
-    goods_db = GoodsDatabase(database_url=db_url)
-    all_goods = goods_db.get_all_goods()
-    sector_options = [
-        {'label': f"{g.name} ({g.isic})", 'value': g.isic}
-        for g in all_goods
-    ]
-except Exception as e:
-    print(f"Error loading sector options: {e}")
-    sector_options = []
+def get_sector_options():
+    try:
+        goods_db = GoodsDatabase(database_url=db_url)
+        all_goods = goods_db.get_all_goods()
+        return [{'label': f"{g.name} ({g.isic})", 'value': g.isic} for g in all_goods]
+    except Exception as e:
+        print(f"Error loading sector options: {e}")
+        return []
 
 # Initialize the app
 app = Dash(__name__)
@@ -51,35 +45,64 @@ CARD_STYLE = {
 }
 
 # App layout
-app.layout = html.Div(
-    style={'fontFamily': 'system-ui, -apple-system, sans-serif', 'padding': '20px', 'backgroundColor': '#f5f7fa', 'minHeight': '100vh'},
-    children=[
-        # Client-side store for matrix data
-        dcc.Store(id='store-matrices'),
-        # Store for user-defined tech change operations
-        dcc.Store(id='store-tech-changes', data=[]),
-
-        html.H1('Sambaza-Sim Input-Output Model Dashboard', style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '30px'}),
-        
-        html.Div(
-            style={'display': 'flex', 'gap': '20px', 'flexWrap': 'wrap'},
-            children=[
-                # Sidebar / Controls
-                html.Div(
-                    style={'flex': '1 1 300px', 'maxWidth': '400px', **CARD_STYLE},
-                    children=[
-                        html.H3('Configuration', style={'marginTop': '0', 'color': '#34495e'}),
-                        
-                        html.Label('Select Dataset / Example Scenario:'),
-                        dcc.Dropdown(
-                            id='example-selector',
-                            options=example_options,
-                            value=default_example,
-                            clearable=False,
-                            style={'marginBottom': '20px'}
-                        ),
-                        
-                        html.Div(id='example-description', style={'marginBottom': '10px', 'fontSize': '0.9em', 'color': '#7f8c8d'}),
+def serve_layout():
+    # Freshly load options
+    examples_config = get_examples_config()
+    example_options = [{'label': f"Example {k}: {v['title']}", 'value': k} for k, v in examples_config.items()]
+    default_example = list(examples_config.keys())[0] if examples_config else None
+    sector_options = get_sector_options()
+    
+    # Scan data/ directory for valid source folders
+    data_dir = os.path.join(root_dir, 'data')
+    data_sources = []
+    if os.path.exists(data_dir):
+        for entry in os.listdir(data_dir):
+            entry_path = os.path.join(data_dir, entry)
+            if os.path.isdir(entry_path):
+                if os.path.exists(os.path.join(entry_path, 'goods.csv')) and os.path.exists(os.path.join(entry_path, 'productions.csv')):
+                    data_sources.append({'label': f"data/{entry}", 'value': f"data/{entry}"})
+    
+    return html.Div(
+        style={'fontFamily': 'system-ui, -apple-system, sans-serif', 'padding': '20px', 'backgroundColor': '#f5f7fa', 'minHeight': '100vh'},
+        children=[
+            dcc.Location(id='url', refresh=True),
+            # Client-side store for matrix data
+            dcc.Store(id='store-matrices'),
+            # Store for user-defined tech change operations
+            dcc.Store(id='store-tech-changes', data=[]),
+            
+            html.H1('Sambaza-Sim Input-Output Model Dashboard', style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '30px'}),
+            
+            html.Div(
+                style={'display': 'flex', 'gap': '20px', 'flexWrap': 'wrap'},
+                children=[
+                    # Sidebar / Controls
+                    html.Div(
+                        style={'flex': '1 1 300px', 'maxWidth': '400px', **CARD_STYLE},
+                        children=[
+                            html.H3('Data Source', style={'marginTop': '0', 'color': '#34495e'}),
+                            html.Label('Select Data Source Folder:'),
+                            dcc.Dropdown(
+                                id='data-source-selector',
+                                options=data_sources,
+                                placeholder="Select a folder in data/",
+                                style={'marginBottom': '10px'}
+                            ),
+                            html.Button('Load Data Source', id='load-source-btn', n_clicks=0, style={'width': '100%', 'padding': '8px', 'backgroundColor': '#f39c12', 'color': 'white', 'border': 'none', 'borderRadius': '4px', 'cursor': 'pointer', 'marginBottom': '20px'}),
+                            html.Div(id='load-source-status', style={'marginBottom': '10px', 'fontSize': '0.9em', 'color': 'red'}),
+                            html.Hr(),
+                            html.H3('Configuration', style={'marginTop': '0', 'color': '#34495e'}),
+                            
+                            html.Label('Select Dataset / Example Scenario:'),
+                            dcc.Dropdown(
+                                id='example-selector',
+                                options=example_options,
+                                value=default_example,
+                                clearable=False,
+                                style={'marginBottom': '20px'}
+                            ),
+                            
+                            html.Div(id='example-description', style={'marginBottom': '10px', 'fontSize': '0.9em', 'color': '#7f8c8d'}),
                         
                         html.Label('Total Final Demand ($):'),
                         dcc.Input(
@@ -446,5 +469,8 @@ app.layout = html.Div(
         )
     ]
 )
+
+app.layout = serve_layout
+
 
 

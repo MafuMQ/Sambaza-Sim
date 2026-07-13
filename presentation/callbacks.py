@@ -6,7 +6,7 @@ import plotly.express as px
 from dash import Input, Output, State, callback, html, no_update, ctx
 import dash_ag_grid as dag
 
-from presentation.layout import examples_config, sector_options
+from presentation.layout import get_examples_config
 from presentation.charts import build_output_chart, build_va_chart
 
 
@@ -142,6 +142,7 @@ def render_tc_changes(changes):
     Input('example-selector', 'value')
 )
 def update_controls(example_id):
+    examples_config = get_examples_config()
     if not example_id or example_id not in examples_config:
         return "", None, True, "", 'supply_curves', 0.0, 0.0, 0.0, 0.0
     
@@ -207,6 +208,7 @@ def update_controls(example_id):
 )
 def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after, ui_tech_changes, total_fd_override):
     empty_matrix_store = {}
+    examples_config = get_examples_config()
     if not example_id or example_id not in examples_config:
         return "-", {}, "-", {}, "-", {}, "-", {}, go.Figure(), go.Figure(), [], [], [], [], html.Div(), [], [], empty_matrix_store
         
@@ -445,4 +447,23 @@ def update_matrix_display(matrix_key, store):
 
     return heatmap_fig, row_data, col_defs, title
 
+
+
+from pipeline.setup_data import setup_data
+
+@callback(
+    Output('url', 'href'),
+    Output('load-source-status', 'children'),
+    Input('load-source-btn', 'n_clicks'),
+    State('data-source-selector', 'value'),
+    prevent_initial_call=True
+)
+def load_new_data_source(n_clicks, source_folder):
+    if not source_folder:
+        return no_update, "Please select a folder."
+    try:
+        setup_data(source=source_folder, overwrite_existing_data=True)
+        return "/", ""
+    except Exception as e:
+        return no_update, f"Error: {e}"
 
