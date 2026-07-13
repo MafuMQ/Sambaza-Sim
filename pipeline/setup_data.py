@@ -270,6 +270,13 @@ def setup_random_sample_data(overwrite=True, for_custom_taxes=False):
     print("="*70)
     time.sleep(1)  # Sleep
     
+    if overwrite:
+        GoodsDatabase().clear_all_tables()
+        SupplyCurveDatabase().clear_all_tables()
+        ProductionsDatabase().clear_all_tables()
+        from pipeline.db.repositories.tech_change_repo import TechChangeDatabase
+        TechChangeDatabase().clear_all_tables()
+    
     print("\n[1/4] Creating Foreign Exchange good for imports...")
     create_foreign_exchange_good()
     
@@ -286,7 +293,7 @@ def setup_random_sample_data(overwrite=True, for_custom_taxes=False):
     print("Database setup completed successfully!")
     print("="*70)
 
-def load_csv_data(csv_path):
+def load_csv_data(csv_path, overwrite=False):
     """Load goods and productions data from CSV files in the specified path."""
     print("="*70)
     print(f"Loading data from CSV files at: {csv_path}")
@@ -306,6 +313,13 @@ def load_csv_data(csv_path):
     gdb = GoodsDatabase()
     scdb = SupplyCurveDatabase()
     pdb = ProductionsDatabase()
+    
+    if overwrite:
+        gdb.clear_all_tables()
+        scdb.clear_all_tables()
+        pdb.clear_all_tables()
+        from pipeline.db.repositories.tech_change_repo import TechChangeDatabase
+        TechChangeDatabase().clear_all_tables()
     
     # Load goods
     print("\n[1/4] Loading goods from CSV...")
@@ -379,6 +393,6 @@ def setup_data(source=None, overwrite_existing_data=False, for_custom_taxes=Fals
             setup_random_sample_data(overwrite=overwrite_existing_data, for_custom_taxes=for_custom_taxes)
         else:
             logging.info(f"Loading data from source: {source}")
-            load_csv_data(source)
+            load_csv_data(source, overwrite=overwrite_existing_data)
 
 

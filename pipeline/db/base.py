@@ -46,10 +46,16 @@ class DatabaseBase:
             The SQLAlchemy ``Base`` specific to the entity (created by
             ``declarative_base()`` in each repository module).
         """
+        self.declarative_base = declarative_base
         self.engine = create_engine(database_url, echo=echo)
-        declarative_base.metadata.create_all(self.engine)
+        self.declarative_base.metadata.create_all(self.engine)
         self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False)
         logger.debug(f"Database initialised: {database_url}")
+
+    def clear_all_tables(self):
+        """Drops and recreates all tables associated with this declarative base."""
+        self.declarative_base.metadata.drop_all(self.engine)
+        self.declarative_base.metadata.create_all(self.engine)
 
     @contextmanager
     def get_session(self):

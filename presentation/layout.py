@@ -119,7 +119,7 @@ def serve_layout():
                         html.H4('Parameters', style={'color': '#34495e'}),
                         
                         html.Label('Iterations:'),
-                        dcc.Input(id='input-iterations', type='number', value=1, min=1, step=1, style={'width': '100%', 'marginBottom': '10px'}),
+                        dcc.Slider(id='input-iterations', min=1, max=20, step=1, value=5, marks={i: str(i) for i in range(1, 21, 2)}, tooltip={"placement": "bottom", "always_visible": False}),
                         
                         html.Label('Solver Type:'),
                         dcc.Dropdown(
@@ -144,6 +144,24 @@ def serve_layout():
                         
                         html.Label('Corporate Tax Rate (After):'),
                         dcc.Slider(id='input-corp-tax-after', min=0, max=1, step=0.01, value=0.0, tooltip={"placement": "bottom", "always_visible": False}),
+                        
+                        html.Label('Wage Spend Rate:'),
+                        dcc.Slider(id='input-wage-spend', min=0, max=1, step=0.01, value=1.0, tooltip={"placement": "bottom", "always_visible": False}),
+                        
+                        html.Label('Surplus Spend Rate:'),
+                        dcc.Slider(id='input-surplus-spend', min=0, max=1, step=0.01, value=1.0, tooltip={"placement": "bottom", "always_visible": False}),
+                        
+                        html.Label('Government Spend Rate:'),
+                        dcc.Slider(id='input-tax-spend', min=0, max=1, step=0.01, value=1.0, tooltip={"placement": "bottom", "always_visible": False}),
+                        
+                        html.Label('Government Target Sector:'),
+                        dcc.Dropdown(
+                            id='input-gov-target',
+                            options=[{'label': 'Proportional (No Target)', 'value': 'proportional'}] + sector_options,
+                            value='proportional',
+                            clearable=False,
+                            style={'marginBottom': '10px'}
+                        ),
                         
                         html.Hr(),
                         html.H4('Technology Changes', style={'color': '#34495e'}),

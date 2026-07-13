@@ -5,6 +5,7 @@ import pandas as pd
 import dash
 from dash import Dash, html, dcc, Input, Output, State, ALL, callback_context
 import dash_ag_grid as dag
+import dash_bootstrap_components as dbc
 
 # Parse ISIC Codes
 def load_isic_data():
@@ -81,7 +82,7 @@ def build_hierarchy(df):
 
 ISIC_HIERARCHY = build_hierarchy(ISIC_DF)
 
-app = Dash(__name__)
+app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
 
 def serve_layout():
     data_dir = os.path.join(os.path.dirname(__file__), 'data')
@@ -92,165 +93,238 @@ def serve_layout():
                 if os.path.exists(os.path.join(data_dir, f, 'goods.csv')) and os.path.exists(os.path.join(data_dir, f, 'productions.csv')):
                     import_options.append({'label': f, 'value': f})
 
-    return html.Div([
+    return dbc.Container([
         dcc.Store(id='goods-store', data=[]),
         dcc.Store(id='productions-store', data=[]),
-        
         dcc.ConfirmDialog(id='import-confirm-dialog', message='Importing will overwrite your current unsaved session data. Continue?'),
         dcc.ConfirmDialog(id='generate-confirm-dialog', message='This dataset folder already exists. Generating will overwrite it. Continue?'),
         
-        html.H1("Sambaza-Sim Data Builder Utility"),
-        html.P("Dynamically create and output input files for the simulator."),
+        dbc.NavbarSimple(
+            brand="Sambaza-Sim Data Builder Utility",
+            brand_href="#",
+            color="primary",
+            dark=True,
+            className="mb-4 shadow-sm"
+        ),
         
-        html.Div([
-            html.H3("0. Import Existing Dataset"),
-            html.Label("Select Dataset:"),
-            dcc.Dropdown(id='import-dropdown', options=import_options, placeholder="Select an existing scenario to import...", style={'width': '300px', 'marginBottom': '10px'}),
-            html.Button("Import Dataset", id='import-btn', n_clicks=0, style={'padding': '10px', 'backgroundColor': '#f39c12', 'color': 'white', 'cursor': 'pointer', 'border': 'none'}),
-            html.Div(id='import-status', style={'marginTop': '10px'})
-        ], style={'padding': '20px', 'border': '1px solid #ccc', 'marginBottom': '20px', 'backgroundColor': '#fdfbf7'}),
+        # Setup Section
+        dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("0. Import Existing Dataset", className="font-weight-bold"),
+                    dbc.CardBody([
+                        html.Label("Select Dataset:", className="mb-1"),
+                        dbc.Row([
+                            dbc.Col([
+                                dcc.Dropdown(id='import-dropdown', options=import_options, placeholder="Select..."),
+                            ], width=8),
+                            dbc.Col([
+                                dbc.Button("Import", id='import-btn', color="warning", n_clicks=0, className="w-100"),
+                            ], width=4),
+                        ]),
+                        html.Div(id='import-status', className="mt-2")
+                    ])
+                ], className="mb-4 shadow-sm h-100")
+            ], width=12, lg=6, className="mb-4 mb-lg-0"),
+            
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("1. Output Configuration", className="font-weight-bold"),
+                    dbc.CardBody([
+                        html.Label("Target Folder Name (inside data/):", className="mb-1"),
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Input(id='target-folder-input', type='text', placeholder='e.g. custom_scenario', className="form-control"),
+                            ], width=8),
+                            dbc.Col([
+                                dbc.Button("GENERATE", id='generate-btn', color="success", n_clicks=0, className="w-100"),
+                            ], width=4),
+                        ]),
+                        html.Div(id='folder-status', className="text-danger mt-1"),
+                        html.Div(id='generate-status', className="mt-2 font-weight-bold")
+                    ])
+                ], className="mb-4 shadow-sm h-100")
+            ], width=12, lg=6),
+        ], className="align-items-stretch mb-4"),
         
-        html.Div([
-            html.H3("1. Output Configuration"),
-            html.Label("Target Folder Name (inside data/):"),
-            dcc.Input(id='target-folder-input', type='text', placeholder='e.g., custom_scenario_1', style={'width': '300px'}),
-            html.Div(id='folder-status', style={'color': 'red', 'marginTop': '5px'})
-        ], style={'padding': '20px', 'border': '1px solid #ccc', 'marginBottom': '20px'}),
-    
-    # GOODS SECTION
-    html.Div([
-        html.H3("2. Add Goods"),
-        
-        dcc.Tabs([
-            dcc.Tab(label='Direct Search', children=[
-                html.Div([
-                    html.Label("Search ISIC Sector:"),
-                    dcc.Dropdown(id='isic-dropdown-direct', options=ISIC_OPTIONS, placeholder="Search ISIC sector..."),
-                ], style={'padding': '15px'})
-            ]),
-            dcc.Tab(label='Hierarchical Selection', children=[
-                html.Div([
-                    html.Label("1. Section:"),
-                    dcc.Dropdown(id='isic-section', options=ISIC_HIERARCHY['sections'], placeholder="Select Section..."),
-                    html.Label("2. Division:"),
-                    dcc.Dropdown(id='isic-division', placeholder="Select Division..."),
-                    html.Label("3. Group:"),
-                    dcc.Dropdown(id='isic-group', placeholder="Select Group..."),
-                    html.Label("4. Class:"),
-                    dcc.Dropdown(id='isic-class', placeholder="Select Class..."),
-                ], style={'padding': '15px'})
-            ])
-        ]),
-        
-        # Hidden store for the ultimately selected ISIC
-        dcc.Store(id='selected-isic-store', data=None),
-        html.Div(id='selected-isic-display', style={'fontWeight': 'bold', 'color': '#2c3e50', 'margin': '10px 0'}),
-        
-        html.Div([
-            html.Label("Custom ISIC Sub-Class 1 (defaults to 000):"),
-            dcc.Input(id='isic-sub1-input', type='text', value='000', style={'marginRight': '15px'}),
-            html.Label("Custom ISIC Sub-Class 2 (defaults to 000):"),
-            dcc.Input(id='isic-sub2-input', type='text', value='000')
-        ], style={'marginBottom': '10px'}),
-        
-        html.Label("Good Name:"),
-        dcc.Input(id='good-name-input', type='text', placeholder="e.g., Steel"),
-        
-        html.Label("Description:"),
-        dcc.Input(id='good-desc-input', type='text', placeholder="e.g., High-grade steel", style={'width': '100%'}),
-        
-        html.Button("Add Good", id='add-good-btn', n_clicks=0, style={'marginTop': '10px', 'marginRight': '10px'}),
-        html.Button("Remove Selected Goods", id='remove-goods-btn', n_clicks=0, style={'marginTop': '10px', 'backgroundColor': '#e74c3c', 'color': 'white', 'border': 'none', 'padding': '5px 10px', 'cursor': 'pointer'}),
-        html.Div(id='add-good-status', style={'color': 'red', 'marginTop': '10px'}),
-        
-        html.H4("Current Goods (Edit Descriptive Name Directly)"),
-        dag.AgGrid(
-            id='goods-grid',
-            columnDefs=[
-                {'field': 'id', 'headerName': 'Internal ID', 'editable': False, 'checkboxSelection': True},
-                {'field': 'name', 'editable': False},
-                {'field': 'isic', 'headerName': 'Formatted ISIC', 'editable': False},
-                {'field': 'descriptive_name', 'editable': True}
-            ],
-            rowData=[],
-            dashGridOptions={'rowSelection': 'multiple'},
-            style={'height': 200, 'width': '100%'}
-        )
-    ], style={'padding': '20px', 'border': '1px solid #ccc', 'marginBottom': '20px'}),
-    
-    # PRODUCTIONS SECTION
-    html.Div([
-        html.H3("3. Add Production"),
-        html.P("Note: Goods used as inputs must be defined in the Goods section above.", style={'fontStyle': 'italic'}),
-        
-        html.Label("Select Good to Produce:"),
-        dcc.Dropdown(id='produce-dropdown', placeholder="Select good..."),
-        
-        html.Label("Producer ID (integer):"),
-        dcc.Input(id='producer-id-input', type='number', value=1001),
-        
-        html.Label("Production Rate / Capacity:"),
-        dcc.Input(id='production-rate-input', type='number', value=100),
-        
-        html.Label("Production Quantity:"),
-        dcc.Input(id='production-qty-input', type='number', value=50),
-        
-        html.Div([
-            dcc.Checklist(id='auto-price-checkbox', options=[{'label': ' Auto-calculate Price (Inputs + VA)', 'value': 'auto'}], value=['auto']),
-            html.Label("Price:"),
-            dcc.Input(id='price-input', type='number', value=0, disabled=True),
-        ], style={'marginBottom': '15px'}),
-        
-        html.H4("Inputs (Requires Goods)"),
-        dcc.Dropdown(id='input-good-dropdown', placeholder="Select input good..."),
-        dcc.Input(id='input-qty', type='number', placeholder="Cost / Qty"),
-        html.Button("Add Input", id='add-input-btn', n_clicks=0),
-        html.Ul(id='current-inputs-list'),
-        dcc.Store(id='current-inputs-store', data={}),
-        
-        html.H4("Value Added Components"),
-        dcc.RadioItems(id='va-mode', options=[
-            {'label': ' Absolute Values ($)', 'value': 'absolute'},
-            {'label': ' Total VA + Percentages (%)', 'value': 'percentage'}
-        ], value='absolute', style={'marginBottom': '10px'}),
-        
-        html.Div([
-            html.Label("Total Value Added ($):"),
-            dcc.Input(id='total-va-input', type='number', value=0)
-        ], id='total-va-container', style={'display': 'none', 'marginBottom': '10px'}),
-        
-        html.Label("Wages ($):", id='va-wages-label'),
-        dcc.Input(id='va-wages-input', type='number', value=10),
-        html.Label("Surplus ($):", id='va-surplus-label'),
-        dcc.Input(id='va-surplus-input', type='number', value=5),
-        html.Label("Taxes ($):", id='va-taxes-label'),
-        dcc.Input(id='va-taxes-input', type='number', value=2),
-        
-        html.Br(),html.Br(),
-        html.Button("Add Production", id='add-prod-btn', n_clicks=0, style={'marginRight': '10px'}),
-        html.Button("Remove Selected Productions", id='remove-productions-btn', n_clicks=0, style={'backgroundColor': '#e74c3c', 'color': 'white', 'border': 'none', 'padding': '5px 10px', 'cursor': 'pointer'}),
-        html.Div(id='add-prod-status', style={'color': 'red', 'marginTop': '10px'}),
-        
-        html.H4("Current Productions"),
-        dag.AgGrid(
-            id='productions-grid',
-            columnDefs=[
-                {'field': 'produce_name', 'headerName': 'Produces', 'checkboxSelection': True},
-                {'field': 'producer', 'headerName': 'Producer ID'},
-                {'field': 'production_inputs', 'headerName': 'Inputs'},
-                {'field': 'production_added_values', 'headerName': 'Value Added'}
-            ],
-            rowData=[],
-            dashGridOptions={'rowSelection': 'multiple'},
-            style={'height': 200, 'width': '100%'}
-        )
-    ], style={'padding': '20px', 'border': '1px solid #ccc', 'marginBottom': '20px'}),
-    
-    html.Div([
-        html.Button("GENERATE FILES", id='generate-btn', n_clicks=0, style={'fontSize': '20px', 'padding': '15px', 'backgroundColor': '#27ae60', 'color': 'white', 'cursor': 'pointer'}),
-        html.Div(id='generate-status', style={'fontSize': '18px', 'marginTop': '10px', 'fontWeight': 'bold'})
-    ], style={'padding': '20px'})
-])
+        # Main Split
+        dbc.Row([
+            # GOODS COLUMN
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("2. Add Goods", className="font-weight-bold"),
+                    dbc.CardBody([
+                        dcc.Tabs([
+                            dcc.Tab(label='Direct Search', children=[
+                                html.Div([
+                                    html.Label("Search ISIC Sector:", className="fw-bold mb-2"),
+                                    dcc.Dropdown(id='isic-dropdown-direct', options=ISIC_OPTIONS, placeholder="Search ISIC sector..."),
+                                ], className="py-3")
+                            ]),
+                            dcc.Tab(label='Hierarchical', children=[
+                                html.Div([
+                                    dbc.Row([
+                                        dbc.Col([html.Label("1. Section:", className="mb-1"), dcc.Dropdown(id='isic-section', options=ISIC_HIERARCHY['sections'], placeholder="Section...")]),
+                                        dbc.Col([html.Label("2. Division:", className="mb-1"), dcc.Dropdown(id='isic-division', placeholder="Division...")]),
+                                    ], className="mb-2"),
+                                    dbc.Row([
+                                        dbc.Col([html.Label("3. Group:", className="mb-1"), dcc.Dropdown(id='isic-group', placeholder="Group...")]),
+                                        dbc.Col([html.Label("4. Class:", className="mb-1"), dcc.Dropdown(id='isic-class', placeholder="Class...")]),
+                                    ])
+                                ], className="py-3")
+                            ])
+                        ]),
+                        
+                        dcc.Store(id='selected-isic-store', data=None),
+                        html.Div(id='selected-isic-display', className="font-weight-bold text-primary mb-3"),
+                        
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Custom ISIC Sub-Class 1:", className="mb-1"),
+                                dbc.Input(id='isic-sub1-input', type='text', value='000', className="form-control"),
+                            ]),
+                            dbc.Col([
+                                html.Label("Custom ISIC Sub-Class 2:", className="mb-1"),
+                                dbc.Input(id='isic-sub2-input', type='text', value='000', className="form-control")
+                            ])
+                        ], className="mb-3"),
+                        
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Good Name:", className="mb-1"),
+                                dbc.Input(id='good-name-input', type='text', placeholder="e.g., Steel", className="form-control"),
+                            ]),
+                            dbc.Col([
+                                html.Label("Description:", className="mb-1"),
+                                dbc.Input(id='good-desc-input', type='text', placeholder="e.g., High-grade", className="form-control"),
+                            ])
+                        ], className="mb-3"),
+                        
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Button("Add Good", id='add-good-btn', color="primary", n_clicks=0, className="me-2"),
+                                dbc.Button("Remove Selected", id='remove-goods-btn', color="danger", outline=True, n_clicks=0),
+                            ])
+                        ], className="mb-3"),
+                        html.Div(id='add-good-status', className="text-danger mb-2"),
+                        
+                        html.H5("Current Goods", className="mb-0 mt-4"),
+                        html.Small("Edit Descriptive Name Directly", className="text-muted d-block mb-2"),
+                        dag.AgGrid(
+                            id='goods-grid',
+                            columnDefs=[
+                                {'field': 'id', 'headerName': 'ID', 'editable': False, 'checkboxSelection': True, 'width': 80},
+                                {'field': 'name', 'editable': False},
+                                {'field': 'isic', 'headerName': 'Formatted ISIC', 'editable': False},
+                                {'field': 'descriptive_name', 'editable': True}
+                            ],
+                            rowData=[],
+                            dashGridOptions={'rowSelection': 'multiple'},
+                            style={'height': 300, 'width': '100%'}
+                        )
+                    ])
+                ], className="shadow-sm mb-4 h-100")
+            ], width=12, lg=6, className="mb-4 mb-lg-0"),
+            
+            # PRODUCTIONS COLUMN
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("3. Add Production", className="font-weight-bold"),
+                    dbc.CardBody([
+                        html.Small("Note: Goods used as inputs must be defined in the Goods section.", className="text-muted d-block mb-3"),
+                        
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Select Good to Produce:", className="mb-1"),
+                                dcc.Dropdown(id='produce-dropdown', placeholder="Select good..."),
+                            ], width=8),
+                            dbc.Col([
+                                html.Label("Producer ID:", className="mb-1"),
+                                dbc.Input(id='producer-id-input', type='number', value=1001, className="form-control"),
+                            ], width=4)
+                        ], className="mb-3"),
+                        
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Rate / Cap:", className="mb-1"),
+                                dbc.Input(id='production-rate-input', type='number', value=100, className="form-control"),
+                            ]),
+                            dbc.Col([
+                                html.Label("Quantity:", className="mb-1"),
+                                dbc.Input(id='production-qty-input', type='number', value=50, className="form-control"),
+                            ]),
+                            dbc.Col([
+                                html.Label("Price:", className="mb-1"),
+                                dbc.Input(id='price-input', type='number', value=0, disabled=True, className="form-control"),
+                            ])
+                        ], className="mb-2"),
+                        
+                        dbc.Checklist(id='auto-price-checkbox', options=[{'label': ' Auto-calc Price (Inputs + VA)', 'value': 'auto'}], value=['auto'], className="mb-4"),
+                        
+                        html.H5("Inputs (Requires Goods)"),
+                        dbc.Row([
+                            dbc.Col([dcc.Dropdown(id='input-good-dropdown', placeholder="Select input good...")], width=6),
+                            dbc.Col([dbc.Input(id='input-qty', type='number', placeholder="Cost / Qty", className="form-control")], width=3),
+                            dbc.Col([dbc.Button("Add Input", id='add-input-btn', color="secondary", outline=True, n_clicks=0, className="w-100")], width=3)
+                        ], className="mb-2"),
+                        html.Ul(id='current-inputs-list', className="text-muted small"),
+                        dcc.Store(id='current-inputs-store', data={}),
+                        
+                        html.Hr(),
+                        html.H5("Value Added Components"),
+                        dcc.RadioItems(id='va-mode', options=[
+                            {'label': ' Absolute Values ($)', 'value': 'absolute'},
+                            {'label': ' Total VA + Percentages (%)', 'value': 'percentage'}
+                        ], value='absolute', className="mb-3", inline=True, inputClassName="me-2", labelClassName="me-3"),
+                        
+                        html.Div([
+                            dbc.Row([
+                                dbc.Col([html.Label("Total Value Added ($):", className="mb-1")], width=4),
+                                dbc.Col([dbc.Input(id='total-va-input', type='number', value=0, className="form-control")], width=8)
+                            ])
+                        ], id='total-va-container', style={'display': 'none'}, className="mb-3"),
+                        
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Wages ($):", id='va-wages-label', className="mb-1"),
+                                dbc.Input(id='va-wages-input', type='number', value=10, className="form-control"),
+                            ]),
+                            dbc.Col([
+                                html.Label("Surplus ($):", id='va-surplus-label', className="mb-1"),
+                                dbc.Input(id='va-surplus-input', type='number', value=5, className="form-control"),
+                            ]),
+                            dbc.Col([
+                                html.Label("Taxes ($):", id='va-taxes-label', className="mb-1"),
+                                dbc.Input(id='va-taxes-input', type='number', value=2, className="form-control"),
+                            ])
+                        ], className="mb-4"),
+                        
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Button("Add Production", id='add-prod-btn', color="primary", n_clicks=0, className="me-2"),
+                                dbc.Button("Remove Selected", id='remove-productions-btn', color="danger", outline=True, n_clicks=0),
+                            ])
+                        ], className="mb-3"),
+                        html.Div(id='add-prod-status', className="text-danger mb-2"),
+                        
+                        html.H5("Current Productions", className="mb-0 mt-4"),
+                        dag.AgGrid(
+                            id='productions-grid',
+                            columnDefs=[
+                                {'field': 'produce_name', 'headerName': 'Produces', 'checkboxSelection': True},
+                                {'field': 'producer', 'headerName': 'Producer ID'},
+                                {'field': 'production_inputs', 'headerName': 'Inputs'},
+                                {'field': 'production_added_values', 'headerName': 'Value Added'}
+                            ],
+                            rowData=[],
+                            dashGridOptions={'rowSelection': 'multiple'},
+                            style={'height': 300, 'width': '100%'}
+                        )
+                    ])
+                ], className="shadow-sm mb-4 h-100")
+            ], width=12, lg=6)
+        ], className="align-items-stretch")
+    ], fluid=True, className="p-4 bg-light")
 
 app.layout = serve_layout
 

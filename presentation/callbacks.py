@@ -205,8 +205,17 @@ def update_controls(example_id):
     State('input-corp-tax-after', 'value'),
     State('store-tech-changes', 'data'),
     State('input-total-fd', 'value'),
+    State('input-wage-spend', 'value'),
+    State('input-surplus-spend', 'value'),
+    State('input-tax-spend', 'value'),
+    State('input-gov-target', 'value'),
 )
-def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after, ui_tech_changes, total_fd_override):
+def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after, ui_tech_changes, total_fd_override, wage_spend, surplus_spend, tax_spend, gov_target):
+    iterations = int(iterations) if iterations else 5
+    wage_spend = float(wage_spend) if wage_spend is not None else 1.0
+    surplus_spend = float(surplus_spend) if surplus_spend is not None else 1.0
+    tax_spend = float(tax_spend) if tax_spend is not None else 1.0
+
     empty_matrix_store = {}
     examples_config = get_examples_config()
     if not example_id or example_id not in examples_config:
@@ -237,28 +246,44 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
         if old_total > 0:
             base_demand = base_demand * (total_fd_override / old_total)
 
-    # 3. Simulate Baseline Scenario (Phase 2)
-    X_before = model.simulate(base_demand)
-    
-    # 4. Setup Shock Demand (Payload)
-    # For now, we simulate a simple demand shock if provided, otherwise keep it same.
-    # We will "add the iterative circular flow scenarios later" as per user feedback.
+    # 3. Setup Initial Demand (Payload)
     shock_demand = base_demand.copy()
     if 'demand_shock' in params and params['demand_shock']:
         for isic_str, shock_val in params['demand_shock'].items():
             if isic_str in isic_map:
                 shock_demand[isic_map[isic_str]] += shock_val
 
-    # 5. Simulate Shock Scenario (Phase 2)
-    X_after = model.simulate(shock_demand)
+    # 4. Simulate Tax Policy (Iterative)
+    from simulators.tax_simulator import run_tax_simulation
     
-    # 6. Basic Formatting for UI (Detached from raw DB data)
-    d_X = (X_after - X_before).sum()
-    d_FD = shock_demand.sum() - base_demand.sum()
+    history = run_tax_simulation(
+        model=model,
+        isic_map=isic_map,
+        base_demand=shock_demand,
+        iterations=iterations,
+        income_tax_rate=inc_after,
+        corporate_tax_rate=corp_after,
+        income_tax_applies_to="wages",
+        wage_spend_rate=wage_spend,
+        surplus_spend_rate=surplus_spend,
+        tax_spend_rate=tax_spend,
+        gov_target_sector=gov_target if gov_target != 'proportional' else None,
+    )
     
-    # VA calculations using simple coefficients from the model
-    VA_before_vec = model.VA_coeffs * X_before
-    VA_after_vec = model.VA_coeffs * X_after
+    # 5. Extract Before (Iter 1) and After (Final Iter) states
+    first_iter = history[0]
+    last_iter = history[-1]
+    
+    X_before = first_iter["X"]
+    X_after = last_iter["X"]
+    
+    # 6. Basic Formatting for UI
+    d_X = X_after.sum() - X_before.sum()
+    d_FD = last_iter["total_demand"] - first_iter["total_demand"]
+    
+    # VA calculations from the tax simulator results
+    VA_before_vec = sum(first_iter["gross_income"].values())
+    VA_after_vec = sum(last_iter["gross_income"].values())
     d_VA = VA_after_vec.sum() - VA_before_vec.sum()
     
     def format_summary(val):
@@ -269,7 +294,10 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     out_X, style_X = format_summary(d_X)
     out_VA, style_VA = format_summary(d_VA)
     out_FD, style_FD = format_summary(d_FD)
-    out_Tax, style_Tax = format_summary(0) # Tax deferred
+    
+    tax_before = first_iter["tax_results"]["total_tax"].sum()
+    tax_after = last_iter["tax_results"]["total_tax"].sum()
+    out_Tax, style_Tax = format_summary(tax_after - tax_before)
     
     # Sector names for tables
     idx_map = {idx: isic for isic, idx in isic_map.items()}
@@ -283,9 +311,9 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
         'VA_Before': VA_before_vec,
         'VA_After': VA_after_vec,
         'VA_Delta': VA_after_vec - VA_before_vec,
-        'FD_Before': base_demand,
-        'FD_After': shock_demand,
-        'FD_Delta': shock_demand - base_demand,
+        'FD_Before': first_iter["Y"],
+        'FD_After': last_iter["Y"],
+        'FD_Delta': last_iter["Y"] - first_iter["Y"],
         # Placeholders for deferred complex variables
         'VA_Output_Before': np.zeros(model.n),
         'VA_Output_After': np.zeros(model.n),
@@ -307,7 +335,7 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     output_proportions_data = []
     iteration_comparison_div = html.Div("Iterative circular flow tracking deferred.")
 
-    demand_vector_data = [{'Sector': s, 'Demand': round(float(d), 4)} for s, d in zip(sectors, base_demand)]
+    demand_vector_data = [{'Sector': s, 'Demand': round(float(d), 4)} for s, d in zip(sectors, first_iter["Y"])]
     
     va_coeff_data = []
     for i, s in enumerate(sectors):
