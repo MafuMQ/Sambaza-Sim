@@ -20,8 +20,10 @@ def run_tax_simulation(
     wage_spend_rate: float = 1.0,
     surplus_spend_rate: float = 1.0,
     tax_spend_rate: float = 1.0,
-    gov_target_sector: str = None,
-    demand_distribution: str = "proportional",
+    economy_type: str = "open",
+    wage_proportions: np.ndarray = None,
+    surplus_proportions: np.ndarray = None,
+    government_proportions: np.ndarray = None,
 ) -> List[Dict[str, Any]]:
     """
     Run an iterative circular-flow tax simulation.
@@ -35,7 +37,7 @@ def run_tax_simulation(
     # Calculate VA components (coefficients) for this model
     va_coeffs = build_va_component_matrix(isic_map)
     
-    # Initial demand distribution proportions for "proportional" mapping
+    # Initial demand distribution proportions for "proportional" mapping (fallback)
     base_demand_sum = base_demand.sum()
     if base_demand_sum > 0:
         initial_proportions = base_demand / base_demand_sum
@@ -43,6 +45,7 @@ def run_tax_simulation(
         initial_proportions = np.full(n, 1.0 / n)
         
     domestic_indices = [i for i, isic in enumerate(isic_map) if isic != "A9999_999_999"]
+    import_idx = isic_map.get("A9999_999_999", None)
 
     current_demand = base_demand.copy()
 
@@ -72,10 +75,19 @@ def run_tax_simulation(
         total_va = (model.VA_coeffs * X).sum()
         unallocated_va = total_va - (gross_income["wages"].sum() + gross_income["surplus"].sum())
         
+        # Import Leakage Handling
+        import_leakage = 0.0
+        if import_idx is not None:
+            import_leakage = X[import_idx]
+            
+        recycled_leakage = 0.0
+        if economy_type == "closed":
+            recycled_leakage = import_leakage
+        
         logger.info(f"--- Iteration {i+1} ---")
         logger.info(f"Output (X): {X.sum():.2f}, Total Demand (Y): {current_demand.sum():.2f}")
         logger.info(f"Net Wages: {total_wage_net:.2f}, Net Surplus: {total_surplus_net:.2f}, Taxes: {total_tax_rev:.2f}")
-        logger.info(f"Unallocated VA: {unallocated_va:.2f}")
+        logger.info(f"Unallocated VA: {unallocated_va:.2f}, Import Leakage: {import_leakage:.2f} (Recycled: {recycled_leakage:.2f})")
         
         # Save snapshot
         snapshot = {
@@ -91,41 +103,42 @@ def run_tax_simulation(
         
         # 4. Prepare next iteration's demand if not on last iteration
         if i < iterations - 1:
-            # Distribute Consumer + Unallocated Spending proportionally
-            consumer_spending = (
-                total_wage_net * wage_spend_rate +
-                total_surplus_net * surplus_spend_rate +
-                unallocated_va * 1.0  # Prevent demand leakage
-            )
-            
-            consumer_demand = distribute_demand(
-                amount=consumer_spending,
-                explicit_proportions=None,
-                demand_distribution=demand_distribution,
+            # Bucket 1: Wage Spending (Wages + Unallocated)
+            wage_spending = total_wage_net * wage_spend_rate + unallocated_va * 1.0
+            wage_demand = distribute_demand(
+                amount=wage_spending,
+                explicit_proportions=wage_proportions,
+                demand_distribution="proportional" if wage_proportions is None else "custom",
                 initial_demand_proportions=initial_proportions,
                 domestic_indices=domestic_indices,
                 n=n
             )
             
-            # Distribute Government Spending
+            # Bucket 2: Surplus/Surplus Spending (Surplus + Recycled Imports)
+            surplus_spending = total_surplus_net * surplus_spend_rate + recycled_leakage * 1.0
+            surplus_demand = distribute_demand(
+                amount=surplus_spending,
+                explicit_proportions=surplus_proportions,
+                demand_distribution="proportional" if surplus_proportions is None else "custom",
+                initial_demand_proportions=initial_proportions,
+                domestic_indices=domestic_indices,
+                n=n
+            )
+            
+            # Bucket 3: Government Spending
             gov_spending = total_tax_rev * tax_spend_rate
-            gov_demand = np.zeros(n)
+            gov_demand = distribute_demand(
+                amount=gov_spending,
+                explicit_proportions=government_proportions,
+                demand_distribution="proportional" if government_proportions is None else "custom",
+                initial_demand_proportions=initial_proportions,
+                domestic_indices=domestic_indices,
+                n=n
+            )
             
-            if gov_target_sector and gov_target_sector in isic_map:
-                gov_demand[isic_map[gov_target_sector]] = gov_spending
-            else:
-                gov_demand = distribute_demand(
-                    amount=gov_spending,
-                    explicit_proportions=None,
-                    demand_distribution=demand_distribution,
-                    initial_demand_proportions=initial_proportions,
-                    domestic_indices=domestic_indices,
-                    n=n
-                )
+            total_spending = wage_spending + surplus_spending + gov_spending
+            logger.info(f"Next-Iteration Spending: {total_spending:.2f} (Wage: {wage_spending:.2f}, Surplus: {surplus_spending:.2f}, Gov: {gov_spending:.2f})")
             
-            total_spending = consumer_spending + gov_spending
-            logger.info(f"Next-Iteration Spending: {total_spending:.2f} (Consumer: {consumer_spending:.2f}, Gov: {gov_spending:.2f})")
-            
-            current_demand = consumer_demand + gov_demand
+            current_demand = wage_demand + surplus_demand + gov_demand
             
     return history

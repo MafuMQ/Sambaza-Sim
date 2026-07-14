@@ -208,9 +208,9 @@ def update_controls(example_id):
     State('input-wage-spend', 'value'),
     State('input-surplus-spend', 'value'),
     State('input-tax-spend', 'value'),
-    State('input-gov-target', 'value'),
+    State('input-economy-type', 'value'),
 )
-def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after, ui_tech_changes, total_fd_override, wage_spend, surplus_spend, tax_spend, gov_target):
+def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc_after, corp_before, corp_after, ui_tech_changes, total_fd_override, wage_spend, surplus_spend, tax_spend, economy_type):
     iterations = int(iterations) if iterations else 5
     wage_spend = float(wage_spend) if wage_spend is not None else 1.0
     surplus_spend = float(surplus_spend) if surplus_spend is not None else 1.0
@@ -240,6 +240,23 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
         # Fallback to uniform demand for testing
         base_demand = np.full(model.n, params.get('uniform_demand', 1000.0))
 
+    # Parse Proportions Vectors
+    def parse_proportions(key):
+        if key in params and params[key]:
+            val = params[key]
+            try:
+                if isinstance(val, list):
+                    return np.array([float(x) for x in val])
+                elif isinstance(val, str):
+                    return np.array([float(x) for x in val.split(';')])
+            except:
+                pass
+        return None
+
+    c_props = parse_proportions('wage_proportions')
+    i_props = parse_proportions('surplus_proportions')
+    g_props = parse_proportions('government_proportions')
+
     # Apply total FD override
     if total_fd_override is not None and total_fd_override > 0:
         old_total = base_demand.sum()
@@ -253,10 +270,28 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
             if isic_str in isic_map:
                 shock_demand[isic_map[isic_str]] += shock_val
 
-    # 4. Simulate Tax Policy (Iterative)
+    # 4. Simulate Tax Policy (Iterative) - Baseline
     from simulators.tax_simulator import run_tax_simulation
     
-    history = run_tax_simulation(
+    history_before = run_tax_simulation(
+        model=model,
+        isic_map=isic_map,
+        base_demand=shock_demand,
+        iterations=iterations,
+        income_tax_rate=inc_before,
+        corporate_tax_rate=corp_before,
+        income_tax_applies_to="wages",
+        wage_spend_rate=wage_spend,
+        surplus_spend_rate=surplus_spend,
+        tax_spend_rate=tax_spend,
+        economy_type=economy_type,
+        wage_proportions=c_props,
+        surplus_proportions=i_props,
+        government_proportions=g_props
+    )
+
+    # 4b. Simulate Tax Policy (Iterative) - New Policy
+    history_after = run_tax_simulation(
         model=model,
         isic_map=isic_map,
         base_demand=shock_demand,
@@ -267,12 +302,15 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
         wage_spend_rate=wage_spend,
         surplus_spend_rate=surplus_spend,
         tax_spend_rate=tax_spend,
-        gov_target_sector=gov_target if gov_target != 'proportional' else None,
+        economy_type=economy_type,
+        wage_proportions=c_props,
+        surplus_proportions=i_props,
+        government_proportions=g_props
     )
     
-    # 5. Extract Before (Iter 1) and After (Final Iter) states
-    first_iter = history[0]
-    last_iter = history[-1]
+    # 5. Extract Before (Equilibrium Baseline) and After (Equilibrium New Policy) states
+    first_iter = history_before[-1]
+    last_iter = history_after[-1]
     
     X_before = first_iter["X"]
     X_after = last_iter["X"]

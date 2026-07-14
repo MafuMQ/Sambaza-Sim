@@ -1,0 +1,6 @@
+id,name,descriptive_name,id_number,isic,producer,produce,produce_name,production_inputs,production_added_values,production_rate,production_quantity,production_material_efficiency,production_labour_efficiency,production_energy_efficiency,contact_name,contact_email,contact_phone,contact_phone2,contact_website,address,address_street,address_city,address_country,address_postal_code,total_inputs_cost,total_value_added,price
+1,Wheat Production,,2000,A0111_000_000,1001,1000,Wheat,{},"{""wages"": 200, ""surplus"": 100}",100,1000,,,,,,,,,,,,,,,,320
+2,Wheat Production,,4000,A0111_000_000,1001,1000,Wheat,{},"{""wages"": 400, ""surplus"": 100}",100,1000,,,,,,,,,,,,,,,,320
+3,Flour Production,,6000,A1061_000_000,1002,2000,Flour,"{""A0111_000_000"": 200}","{""wages"": 150, ""surplus"": 50}",100,500,,,,,,,,,,,,,,,,410
+5,Flour Production,,10000,A1061_000_000,1002,2000,Flour,"{""A0111_000_000"": 200}","{""wages"": 150, ""surplus"": 100}",100,500,,,,,,,,,,,,,,,,460
+7,Bread Production,,14000,A1071_000_000,1003,3000,Bread,"{""A1061_000_000"": 300}","{""wages"": 200, ""surplus"": 100}",100,100,,,,,,,,,,,,,,,,630

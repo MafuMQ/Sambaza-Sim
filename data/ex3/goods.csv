@@ -1,0 +1,4 @@
+id,name,descriptive_name,id_number,isic,isic_section,isic_division,isic_group,isic_class,sub_class_a,sub_class_b,sub_class_c,sub_class_nf
+1,Wheat,Raw Harvested wheat,1000,A0111_000_000,A,1,1,1,0,0,0,0
+2,Flour,basic flour,2000,A1061_000_000,A,10,6,1,0,0,0,0
+3,Bread,,3000,A1071_000_000,A,10,7,1,0,0,0,0

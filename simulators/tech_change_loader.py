@@ -185,8 +185,8 @@ def load_tax_policy_from_csv(
                         'proportions': 'list',
                         'target_isic': 'auto',
                         'demand_shock': 'float',
-                        'consumption_proportions': 'list',
-                        'investment_proportions': 'list',
+                        'wage_proportions': 'list',
+                        'surplus_proportions': 'list',
                         'government_proportions': 'list',
                         'income_tax_rate_before': 'float',
                         'income_tax_rate_after': 'float',
@@ -305,8 +305,8 @@ def load_tech_change_from_csv(
                             'corporate_tax_rate_before': 'float',
                             'corporate_tax_rate_after': 'float',
                             'income_tax_applies_to': 'auto',
-                            'consumption_proportions': 'list',
-                            'investment_proportions': 'list',
+                            'wage_proportions': 'list',
+                            'surplus_proportions': 'list',
                             'government_proportions': 'list',
                             'iterations': 'int'
                         }

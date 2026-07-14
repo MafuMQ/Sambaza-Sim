@@ -174,8 +174,10 @@ def distribute_demand(
             raise ValueError(
                 f"Proportions length {len(props)} does not match sectors {n}"
             )
-        if not np.isclose(props.sum(), 1.0, atol=1e-6):
-            raise ValueError(f"Proportions must sum to 1.0, got {props.sum()}")
+        if not np.isclose(props.sum(), 1.0, atol=1e-2):
+            raise ValueError(f"Proportions must sum to approximately 1.0, got {props.sum()}")
+        # Normalize to ensure exactly 1.0
+        props = props / props.sum()
         return props * amount
 
     if demand_distribution == "proportional" and initial_demand_proportions is not None:

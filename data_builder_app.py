@@ -96,6 +96,7 @@ def serve_layout():
     return dbc.Container([
         dcc.Store(id='goods-store', data=[]),
         dcc.Store(id='productions-store', data=[]),
+        dcc.Store(id='tax-policies-store', data=[]),
         dcc.ConfirmDialog(id='import-confirm-dialog', message='Importing will overwrite your current unsaved session data. Continue?'),
         dcc.ConfirmDialog(id='generate-confirm-dialog', message='This dataset folder already exists. Generating will overwrite it. Continue?'),
         
@@ -288,15 +289,11 @@ def serve_layout():
                             dbc.Col([
                                 html.Label("Wages ($):", id='va-wages-label', className="mb-1"),
                                 dbc.Input(id='va-wages-input', type='number', value=10, className="form-control"),
-                            ]),
+                            ], width=4),
                             dbc.Col([
                                 html.Label("Surplus ($):", id='va-surplus-label', className="mb-1"),
                                 dbc.Input(id='va-surplus-input', type='number', value=5, className="form-control"),
-                            ]),
-                            dbc.Col([
-                                html.Label("Taxes ($):", id='va-taxes-label', className="mb-1"),
-                                dbc.Input(id='va-taxes-input', type='number', value=2, className="form-control"),
-                            ])
+                            ], width=4)
                         ], className="mb-4"),
                         
                         dbc.Row([
@@ -323,6 +320,85 @@ def serve_layout():
                     ])
                 ], className="shadow-sm mb-4 h-100")
             ], width=12, lg=6)
+        ], className="align-items-stretch mb-4"),
+        
+        # Tax Policy / Scenario Section
+        dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("4. Tax Policies & Spending Profiles", className="font-weight-bold bg-info text-white"),
+                    dbc.CardBody([
+                        html.Small("Define the baseline final demand and distribution profiles.", className="text-muted d-block mb-3"),
+                        
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Scenario Title:", className="mb-1"),
+                                dbc.Input(id='tax-title-input', type='text', placeholder="e.g. Baseline Tax Policy", className="form-control"),
+                            ], width=6),
+                            dbc.Col([
+                                html.Label("Description:", className="mb-1"),
+                                dbc.Input(id='tax-desc-input', type='text', placeholder="Optional details...", className="form-control"),
+                            ], width=6)
+                        ], className="mb-3"),
+
+                        html.H6("Spending Profiles by Sector", className="mt-4"),
+                        html.Small("Base Demand ($) defines the baseline values. The % columns dictate how dynamic income is spent (should sum to 1.0).", className="text-muted d-block mb-2"),
+                        
+                        dbc.Button("Load Current Goods", id='load-tax-goods-btn', color="secondary", size="sm", className="mb-2"),
+                        
+                        dag.AgGrid(
+                            id='tax-profiles-grid',
+                            columnDefs=[
+                                {'field': 'isic', 'headerName': 'ISIC', 'editable': False, 'width': 120},
+                                {'field': 'name', 'headerName': 'Good', 'editable': False},
+                                {'field': 'base_demand', 'headerName': 'Base Demand ($)', 'editable': True, 'type': 'numericColumn'},
+                                {'field': 'wage_percent', 'headerName': 'Wage Spend %', 'editable': True, 'type': 'numericColumn'},
+                                {'field': 'surplus_percent', 'headerName': 'Surplus Spend %', 'editable': True, 'type': 'numericColumn'},
+                                {'field': 'gov_percent', 'headerName': 'Gov Spend %', 'editable': True, 'type': 'numericColumn'}
+                            ],
+                            rowData=[],
+                            dashGridOptions={'singleClickEdit': True},
+                            style={'height': 300, 'width': '100%'}
+                        ),
+
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Income Tax Rate:", className="mt-3 mb-1"),
+                                dbc.Input(id='tax-income-input', type='number', value=0.1, step=0.01, min=0, max=1, className="form-control"),
+                            ], width=4),
+                            dbc.Col([
+                                html.Label("Corporate Tax Rate:", className="mt-3 mb-1"),
+                                dbc.Input(id='tax-corp-input', type='number', value=0.25, step=0.01, min=0, max=1, className="form-control"),
+                            ], width=4),
+                            dbc.Col([
+                                html.Label("Iterations:", className="mt-3 mb-1"),
+                                dbc.Input(id='tax-iterations-input', type='number', value=5, step=1, min=1, className="form-control"),
+                            ], width=4)
+                        ], className="mb-3"),
+
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Button("Add Scenario", id='add-tax-btn', color="primary", n_clicks=0, className="me-2"),
+                                dbc.Button("Remove Selected", id='remove-tax-btn', color="danger", outline=True, n_clicks=0),
+                            ])
+                        ], className="mt-3 mb-3"),
+                        html.Div(id='add-tax-status', className="text-danger mb-2"),
+
+                        dag.AgGrid(
+                            id='tax-policies-grid',
+                            columnDefs=[
+                                {'field': 'title', 'headerName': 'Title', 'checkboxSelection': True},
+                                {'field': 'iterations', 'headerName': 'Iterations', 'width': 100},
+                                {'field': 'income_tax_rate_after', 'headerName': 'Inc Tax', 'width': 100},
+                                {'field': 'corporate_tax_rate_after', 'headerName': 'Corp Tax', 'width': 100}
+                            ],
+                            rowData=[],
+                            dashGridOptions={'rowSelection': 'multiple'},
+                            style={'height': 200, 'width': '100%'}
+                        )
+                    ])
+                ], className="shadow-sm mb-4 h-100")
+            ], width=12)
         ], className="align-items-stretch")
     ], fluid=True, className="p-4 bg-light")
 
@@ -547,13 +623,12 @@ def manage_inputs(add_in_n, add_prod_n, good_isic, qty, current_inputs, goods):
     Output('total-va-container', 'style'),
     Output('va-wages-label', 'children'),
     Output('va-surplus-label', 'children'),
-    Output('va-taxes-label', 'children'),
     Input('va-mode', 'value')
 )
 def toggle_va_mode(mode):
     if mode == 'percentage':
-        return {'display': 'block', 'marginBottom': '10px'}, "Wages (%):", "Surplus (%):", "Taxes (%):"
-    return {'display': 'none', 'marginBottom': '10px'}, "Wages ($):", "Surplus ($):", "Taxes ($):"
+        return {'display': 'block', 'marginBottom': '10px'}, "Wages (%):", "Surplus (%):"
+    return {'display': 'none', 'marginBottom': '10px'}, "Wages ($):", "Surplus ($):"
 
 @app.callback(
     Output('price-input', 'value'),
@@ -564,10 +639,9 @@ def toggle_va_mode(mode):
     Input('total-va-input', 'value'),
     Input('va-wages-input', 'value'),
     Input('va-surplus-input', 'value'),
-    Input('va-taxes-input', 'value'),
     State('price-input', 'value')
 )
-def live_update_price(auto_price, current_inputs, va_mode, total_va, wages, surplus, taxes, current_price):
+def live_update_price(auto_price, current_inputs, va_mode, total_va, wages, surplus, current_price):
     is_auto = 'auto' in (auto_price or [])
     
     if not is_auto:
@@ -576,10 +650,9 @@ def live_update_price(auto_price, current_inputs, va_mode, total_va, wages, surp
     inputs_sum = sum(current_inputs.values()) if current_inputs else 0.0
     w = wages or 0.0
     s = surplus or 0.0
-    t = taxes or 0.0
     
     if va_mode == 'absolute':
-        va_sum = w + s + t
+        va_sum = w + s
     else:
         va_sum = total_va or 0.0
         
@@ -603,11 +676,10 @@ def live_update_price(auto_price, current_inputs, va_mode, total_va, wages, surp
     State('total-va-input', 'value'),
     State('va-wages-input', 'value'),
     State('va-surplus-input', 'value'),
-    State('va-taxes-input', 'value'),
     State('goods-store', 'data'),
     State('productions-store', 'data')
 )
-def manage_productions(add_n, remove_n, selected_rows, produce_isic, producer_id, p_rate, p_qty, price, inputs_dict, va_mode, total_va, wages, surplus, taxes, goods, productions):
+def manage_productions(add_n, remove_n, selected_rows, produce_isic, producer_id, p_rate, p_qty, price, inputs_dict, va_mode, total_va, wages, surplus, goods, productions):
     ctx = callback_context
     if not ctx.triggered:
         return dash.no_update, dash.no_update, ""
@@ -632,21 +704,18 @@ def manage_productions(add_n, remove_n, selected_rows, produce_isic, producer_id
     
     w = wages or 0.0
     s = surplus or 0.0
-    t = taxes or 0.0
     
     if va_mode == 'percentage':
-        if abs(w + s + t - 100.0) > 0.001:
-            return dash.no_update, dash.no_update, f"Error: Percentages sum to {w+s+t}% instead of 100%."
+        if abs(w + s - 100.0) > 0.001:
+            return dash.no_update, dash.no_update, f"Error: Percentages sum to {w+s}% instead of 100%."
             
         tot = total_va or 0.0
         w = tot * (w / 100.0)
         s = tot * (s / 100.0)
-        t = tot * (t / 100.0)
     
     va = {
         "wages": w,
-        "surplus": s,
-        "taxes": t
+        "surplus": s
     }
     
     prod = {
@@ -676,9 +745,10 @@ def manage_productions(add_n, remove_n, selected_rows, produce_isic, producer_id
     Input('generate-btn', 'n_clicks'),
     State('target-folder-input', 'value'),
     State('goods-store', 'data'),
-    State('productions-store', 'data')
+    State('productions-store', 'data'),
+    State('tax-policies-store', 'data')
 )
-def generate_files_check(n, folder_name, goods, productions):
+def generate_files_check(n, folder_name, goods, productions, tax_policies):
     if not n:
         return dash.no_update, dash.no_update, dash.no_update
     if not folder_name:
@@ -706,7 +776,7 @@ def generate_files_check(n, folder_name, goods, productions):
     if os.path.exists(base_dir) and len(os.listdir(base_dir)) > 0:
         return True, dash.no_update, dash.no_update
         
-    msg, style = perform_generation(folder_name, goods, productions)
+    msg, style = perform_generation(folder_name, goods, productions, tax_policies)
     return False, msg, style
 
 @app.callback(
@@ -716,14 +786,15 @@ def generate_files_check(n, folder_name, goods, productions):
     State('target-folder-input', 'value'),
     State('goods-store', 'data'),
     State('productions-store', 'data'),
+    State('tax-policies-store', 'data'),
     prevent_initial_call=True
 )
-def generate_files_confirmed(confirm_n, folder_name, goods, productions):
+def generate_files_confirmed(confirm_n, folder_name, goods, productions, tax_policies):
     if not confirm_n:
         return dash.no_update, dash.no_update
-    return perform_generation(folder_name, goods, productions)
+    return perform_generation(folder_name, goods, productions, tax_policies)
 
-def perform_generation(folder_name, goods, productions):
+def perform_generation(folder_name, goods, productions, tax_policies):
     base_dir = os.path.join(os.path.dirname(__file__), 'data', folder_name)
     try:
         os.makedirs(base_dir, exist_ok=True)
@@ -750,7 +821,104 @@ def perform_generation(folder_name, goods, productions):
     full_prod_cols = expected_prod_cols[:12] + dummy_cols + ['price']
     prod_df[full_prod_cols].to_csv(os.path.join(base_dir, 'productions.csv'), index=False)
     
+    if tax_policies and len(tax_policies) > 0:
+        tax_df = pd.DataFrame(tax_policies)
+        expected_tax_cols = ['example_id','change_type','title','description','final_demand','income_tax_rate_before','income_tax_rate_after','corporate_tax_rate_before','corporate_tax_rate_after','income_tax_applies_to','iterations','wage_proportions','surplus_proportions','government_proportions','tech_change_function_name','tech_change_params']
+        for c in expected_tax_cols:
+            if c not in tax_df.columns:
+                tax_df[c] = ''
+        tax_df[expected_tax_cols].to_csv(os.path.join(base_dir, 'tax_policies.csv'), index=False)
+    
     return f"Files generated successfully in data/{folder_name}!", {'color': 'green'}
+
+# --- Tax Policies Callbacks ---
+
+@app.callback(
+    Output('tax-profiles-grid', 'rowData'),
+    Input('load-tax-goods-btn', 'n_clicks'),
+    State('goods-store', 'data'),
+    prevent_initial_call=True
+)
+def load_tax_goods(n, goods):
+    if not goods: return []
+    return [{
+        'isic': g['isic'], 
+        'name': g['name'], 
+        'base_demand': 100, 
+        'wage_percent': round(1.0/len(goods), 4),
+        'surplus_percent': round(1.0/len(goods), 4),
+        'gov_percent': round(1.0/len(goods), 4)
+    } for g in goods]
+
+@app.callback(
+    Output('tax-policies-store', 'data', allow_duplicate=True),
+    Output('add-tax-status', 'children'),
+    Input('add-tax-btn', 'n_clicks'),
+    State('tax-title-input', 'value'),
+    State('tax-desc-input', 'value'),
+    State('tax-profiles-grid', 'rowData'),
+    State('tax-income-input', 'value'),
+    State('tax-corp-input', 'value'),
+    State('tax-iterations-input', 'value'),
+    State('tax-policies-store', 'data'),
+    prevent_initial_call=True
+)
+def add_tax_policy(n, title, desc, rowData, inc_tax, corp_tax, iters, policies):
+    if not title or not rowData:
+        return dash.no_update, "Title and loaded goods are required."
+    
+    try:
+        base_d = ";".join(str(float(r.get('base_demand', 0))) for r in rowData)
+        wage_p = ";".join(str(float(r.get('wage_percent', 0))) for r in rowData)
+        surplus_p = ";".join(str(float(r.get('surplus_percent', 0))) for r in rowData)
+        gov_p = ";".join(str(float(r.get('gov_percent', 0))) for r in rowData)
+    except Exception as e:
+        return dash.no_update, f"Error parsing numbers: {e}"
+
+    new_id = len(policies) + 1
+    policy = {
+        'example_id': new_id,
+        'change_type': 'tax_policy',
+        'title': title,
+        'description': desc or "",
+        'final_demand': base_d,
+        'income_tax_rate_before': inc_tax or 0.0,
+        'income_tax_rate_after': inc_tax or 0.0,
+        'corporate_tax_rate_before': corp_tax or 0.0,
+        'corporate_tax_rate_after': corp_tax or 0.0,
+        'income_tax_applies_to': 'wages',
+        'iterations': iters or 5,
+        'wage_proportions': wage_p,
+        'surplus_proportions': surplus_p,
+        'government_proportions': gov_p,
+        'tech_change_function_name': '',
+        'tech_change_params': ''
+    }
+    
+    policies.append(policy)
+    return policies, "Scenario added."
+
+@app.callback(
+    Output('tax-policies-grid', 'rowData'),
+    Input('tax-policies-store', 'data')
+)
+def update_tax_grid(policies):
+    return policies or []
+
+@app.callback(
+    Output('tax-policies-store', 'data', allow_duplicate=True),
+    Input('remove-tax-btn', 'n_clicks'),
+    State('tax-policies-grid', 'selectedRows'),
+    State('tax-policies-store', 'data'),
+    prevent_initial_call=True
+)
+def remove_tax_policy(n, selected, policies):
+    if not selected: return dash.no_update
+    titles_to_remove = {s['title'] for s in selected}
+    new_policies = [p for p in policies if p['title'] not in titles_to_remove]
+    for i, p in enumerate(new_policies):
+        p['example_id'] = i + 1
+    return new_policies
 
 if __name__ == '__main__':
     print("Starting Sambaza-Sim Data Builder Utility on http://127.0.0.1:8051/")

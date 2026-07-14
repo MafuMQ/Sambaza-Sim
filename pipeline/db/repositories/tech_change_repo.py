@@ -39,8 +39,8 @@ class TechChange(Base):
     uniform_demand = Column(Float, nullable=True)
     demand_vector = Column(JSON, nullable=True)
     proportions = Column(JSON, nullable=True)
-    consumption_proportions = Column(JSON, nullable=True)
-    investment_proportions = Column(JSON, nullable=True)
+    wage_proportions = Column(JSON, nullable=True)
+    surplus_proportions = Column(JSON, nullable=True)
     government_proportions = Column(JSON, nullable=True)
 
     income_tax_rate_before = Column(Float, nullable=True)
@@ -84,7 +84,7 @@ class TechChange(Base):
         tax_policy_fields = [
             "total_demand", "uniform_demand", "demand_vector", "proportions",
             "target_isic", "demand_shock",
-            "consumption_proportions", "investment_proportions", "government_proportions",
+            "wage_proportions", "surplus_proportions", "government_proportions",
             "income_tax_rate_before", "income_tax_rate_after",
             "corporate_tax_rate_before", "corporate_tax_rate_after",
             "income_tax_applies_to",
@@ -96,7 +96,7 @@ class TechChange(Base):
             "income_tax_rate_before", "income_tax_rate_after",
             "corporate_tax_rate_before", "corporate_tax_rate_after",
             "income_tax_applies_to",
-            "consumption_proportions", "investment_proportions", "government_proportions",
+            "wage_proportions", "surplus_proportions", "government_proportions",
         ]
 
         allowed_fields = (

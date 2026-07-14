@@ -154,11 +154,14 @@ def serve_layout():
                         html.Label('Government Spend Rate:'),
                         dcc.Slider(id='input-tax-spend', min=0, max=1, step=0.01, value=1.0, tooltip={"placement": "bottom", "always_visible": False}),
                         
-                        html.Label('Government Target Sector:'),
+                        html.Label('Economy Type (Import Leakage):'),
                         dcc.Dropdown(
-                            id='input-gov-target',
-                            options=[{'label': 'Proportional (No Target)', 'value': 'proportional'}] + sector_options,
-                            value='proportional',
+                            id='input-economy-type',
+                            options=[
+                                {'label': 'Open Economy (Imports Leak)', 'value': 'open'},
+                                {'label': 'Closed Economy (Imports Recycled)', 'value': 'closed'}
+                            ],
+                            value='open',
                             clearable=False,
                             style={'marginBottom': '10px'}
                         ),
