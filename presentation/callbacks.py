@@ -226,6 +226,9 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     
     # 1. Pipeline Gatekeeper: Get Pre-Calibrated Model
     from pipeline.setup_data import get_calibrated_model
+    from core.io_matrix import IOModel
+    from simulators.tech_change import TechnologicalChange
+    from simulators.tech_change_loader import build_tech_change_from_spec
     try:
         model, isic_map = get_calibrated_model(demoDB=False, loggingLevel=logging.WARNING)
     except Exception as e:
@@ -290,9 +293,30 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
         government_proportions=g_props
     )
 
-    # 4b. Simulate Tax Policy (Iterative) - New Policy
+    # 4b. Apply UI tech changes to build the "after" model
+    model_after = model  # default: same model if no tech changes
+    A_after_mat = model.A.copy()
+    if ui_tech_changes:
+        try:
+            spec = {
+                "name": "UI Tech Change",
+                "description": "Changes applied via the GUI",
+                "changes": ui_tech_changes,
+            }
+            tech_change = build_tech_change_from_spec(spec, isic_map)
+            A_new, VA_new = tech_change.apply(
+                A_matrix=model.A,
+                VA_vector=model.VA_coeffs,
+                isic_map=isic_map,
+            )
+            model_after = IOModel(A=A_new, VA_coeffs=VA_new)
+            A_after_mat = A_new
+        except Exception as e:
+            print(f"Tech change application error: {e}")
+
+    # 4c. Simulate Tax Policy (Iterative) - New Policy (using modified model)
     history_after = run_tax_simulation(
-        model=model,
+        model=model_after,
         isic_map=isic_map,
         base_demand=shock_demand,
         iterations=iterations,
@@ -389,14 +413,14 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
 
     # Z = A * diag(X)
     Z_before_mat = model.A * X_before[np.newaxis, :]
-    Z_after_mat  = model.A * X_after[np.newaxis, :]
+    Z_after_mat  = A_after_mat * X_after[np.newaxis, :]
 
     matrix_store = {
         'sectors': sectors,
         'A_before': _mat_to_list(model.A),
-        'A_after':  _mat_to_list(model.A), # Tech change deferred
+        'A_after':  _mat_to_list(A_after_mat),
         'L_before': _mat_to_list(model.L),
-        'L_after':  _mat_to_list(model.L),
+        'L_after':  _mat_to_list(model_after.L),
         'Z_before': _mat_to_list(Z_before_mat),
         'Z_after':  _mat_to_list(Z_after_mat),
     }
