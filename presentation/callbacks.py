@@ -7,7 +7,7 @@ from dash import Input, Output, State, callback, html, no_update, ctx
 import dash_ag_grid as dag
 
 from presentation.layout import get_examples_config
-from presentation.charts import build_output_chart, build_va_chart
+from presentation.charts import build_waterfall_chart, build_delta_bar_chart
 
 
 
@@ -100,7 +100,7 @@ METHOD_LABELS = {
 )
 def render_tc_changes(changes):
     if not changes:
-        return html.P('No changes added yet.', style={'fontSize': '0.85em', 'color': '#95a5a6'})
+        return html.P('No changes added yet.', style={'fontSize': '11px', 'color': '#64748b'})
 
     items = []
     for i, ch in enumerate(changes):
@@ -120,9 +120,10 @@ def render_tc_changes(changes):
             html.Div(
                 f"#{i+1}  {desc}",
                 style={
-                    'fontSize': '0.8em', 'padding': '4px 8px',
-                    'backgroundColor': '#eaf4fb', 'borderRadius': '4px',
-                    'marginBottom': '4px', 'border': '1px solid #aed6f1',
+                    'fontSize': '11px', 'padding': '6px 10px',
+                    'backgroundColor': '#252836', 'borderRadius': '6px',
+                    'marginBottom': '6px', 'border': '1px solid #272b3d',
+                    'color': '#e2e8f0', 'lineHeight': '1.4'
                 }
             )
         )
@@ -185,13 +186,9 @@ def update_controls(example_id):
     Output('summary-fd', 'style'),
     Output('summary-tax', 'children'),
     Output('summary-tax', 'style'),
-    Output('graph-va-comparison', 'figure'),
-    Output('graph-output-comparison', 'figure'),
+    Output('graph-waterfall', 'figure'),
+    Output('graph-delta-bar', 'figure'),
     Output('table-results', 'rowData'),
-    Output('table-va-components', 'rowData'),
-    Output('table-fd-components', 'rowData'),
-    Output('table-output-proportions', 'rowData'),
-    Output('iteration-comparison-div', 'children'),
     Output('table-demand-vector', 'rowData'),
     Output('table-va-coefficients', 'rowData'),
     Output('store-matrices', 'data'),
@@ -219,7 +216,7 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     empty_matrix_store = {}
     examples_config = get_examples_config()
     if not example_id or example_id not in examples_config:
-        return "-", {}, "-", {}, "-", {}, "-", {}, go.Figure(), go.Figure(), [], [], [], [], html.Div(), [], [], empty_matrix_store
+        return "-", {}, "-", {}, "-", {}, "-", {}, go.Figure(), go.Figure(), [], [], [], empty_matrix_store
         
     config = examples_config[example_id]
     params = config['params'].copy()
@@ -234,7 +231,7 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     except Exception as e:
         print(f"Calibration error: {e}")
         err_fig = go.Figure().add_annotation(text=f"Error: {e}", showarrow=False)
-        return "Error", {'color': 'red'}, "-", {}, "-", {}, "-", {}, err_fig, go.Figure(), [], [], [], [], html.Div(), [], [], empty_matrix_store
+        return "Error", {'color': 'red'}, "-", {}, "-", {}, "-", {}, err_fig, go.Figure(), [], [], [], empty_matrix_store
 
     # 2. Setup Baseline Demand (Payload)
     if 'final_demand' in params and params['final_demand']:
@@ -349,9 +346,15 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     d_VA = VA_after_vec.sum() - VA_before_vec.sum()
     
     def format_summary(val):
-        color = '#27ae60' if val > 0 else ('#e74c3c' if val < 0 else '#7f8c8d')
+        color = '#22c55e' if val > 0 else ('#ef4444' if val < 0 else '#64748b')
         sign = '+' if val > 0 else ''
-        return f"{sign}${val:,.2f}", {'color': color, 'margin': 0}
+        return f"{sign}${val:,.2f}", {
+            'color': color,
+            'margin': 0,
+            'fontSize': '24px',
+            'fontWeight': '700',
+            'lineHeight': '1',
+        }
         
     out_X, style_X = format_summary(d_X)
     out_VA, style_VA = format_summary(d_VA)
@@ -388,14 +391,10 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     df = df.sort_values(by='Output_Before', ascending=False)
     row_data = df.to_dict('records')
     
-    fig_out = build_output_chart(df, 1)
-    fig_va = build_va_chart(df, 1)
+    fig_waterfall = build_waterfall_chart(X_before.sum(), X_after.sum())
+    fig_delta     = build_delta_bar_chart(df)
 
-    # Deferred component tables returned as empty
-    va_components_data = []
-    fd_components_data = []
-    output_proportions_data = []
-    iteration_comparison_div = html.Div("Iterative circular flow tracking deferred.")
+    # (placeholder tables removed — they were always empty)
 
     demand_vector_data = [{'Sector': s, 'Demand': round(float(d), 4)} for s, d in zip(sectors, first_iter["Y"])]
     
@@ -426,10 +425,8 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     }
 
     return (out_X, style_X, out_VA, style_VA, out_FD, style_FD, out_Tax, style_Tax,
-            fig_va, fig_out,
-            row_data, va_components_data, fd_components_data, output_proportions_data,
-            iteration_comparison_div,
-            demand_vector_data, va_coeff_data, matrix_store)
+            fig_waterfall, fig_delta,
+            row_data, demand_vector_data, va_coeff_data, matrix_store)
 
 
 # ---------------------------------------------------------------------------
@@ -445,8 +442,21 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
     State('store-matrices', 'data'),
 )
 def update_matrix_display(matrix_key, store):
+    _DARK_BG    = '#16192a'
+    _PAPER_BG   = '#1e2130'
+    _TEXT_COLOR = '#e2e8f0'
+    _MUTED      = '#64748b'
+    _GRID_C     = '#272b3d'
+    _ACCENT     = '#4f8ef7'
+
     if not store or not store.get('sectors'):
-        return go.Figure(), [], [], "No simulation data"
+        empty_fig = go.Figure()
+        empty_fig.update_layout(
+            paper_bgcolor=_PAPER_BG, plot_bgcolor=_DARK_BG,
+            font=dict(color=_TEXT_COLOR),
+            xaxis=dict(visible=False), yaxis=dict(visible=False)
+        )
+        return empty_fig, [], [], "No simulation data"
 
     sectors = store['sectors']
     n = len(sectors)
@@ -486,7 +496,14 @@ def update_matrix_display(matrix_key, store):
 
     # ---- Heatmap ----
     is_delta = matrix_key.startswith('delta_')
-    colorscale = 'RdBu_r' if is_delta else 'Blues'
+    
+    if is_delta:
+        # Diverging colorscale: Red (negative) -> Dark Background (zero) -> Blue (positive)
+        colorscale = [[0.0, '#ef4444'], [0.5, _DARK_BG], [1.0, _ACCENT]]
+    else:
+        # Sequential colorscale: Dark Background -> Blue (positive)
+        colorscale = [[0.0, _DARK_BG], [1.0, _ACCENT]]
+        
     zmid = 0 if is_delta else None
 
     heatmap_fig = go.Figure(go.Heatmap(
@@ -495,17 +512,22 @@ def update_matrix_display(matrix_key, store):
         y=short_labels,
         colorscale=colorscale,
         zmid=zmid,
-        colorbar=dict(title='Value'),
+        colorbar=dict(title=dict(text='Value', font=dict(color=_TEXT_COLOR)), tickfont=dict(color=_TEXT_COLOR)),
         hovertemplate='Row: %{y}<br>Col: %{x}<br>Value: %{z:.4f}<extra></extra>',
         text=[[f'{v:.3f}' for v in row] for row in matrix],
         texttemplate='%{text}',
-        textfont=dict(size=9),
+        textfont=dict(size=9, color=_TEXT_COLOR),
     ))
     heatmap_fig.update_layout(
-        title=title,
-        xaxis=dict(title='Column (buying sector)', tickangle=-45, tickfont=dict(size=10)),
-        yaxis=dict(title='Row (selling sector)', tickfont=dict(size=10), autorange='reversed'),
-        height=500,
+        title=dict(text=title, font=dict(color=_TEXT_COLOR, size=13)),
+        paper_bgcolor=_PAPER_BG,
+        plot_bgcolor=_DARK_BG,
+        font=dict(color=_TEXT_COLOR, family='Inter, system-ui, sans-serif'),
+        xaxis=dict(title=dict(text='Column (buying sector)', font=dict(color=_MUTED)), tickangle=-45, tickfont=dict(size=10, color=_MUTED),
+                   gridcolor=_GRID_C, linecolor=_GRID_C),
+        yaxis=dict(title=dict(text='Row (selling sector)', font=dict(color=_MUTED)), tickfont=dict(size=10, color=_MUTED),
+                   autorange='reversed', gridcolor=_GRID_C, linecolor=_GRID_C),
+        height=480,
         margin=dict(l=100, r=40, t=60, b=120),
     )
 
@@ -513,8 +535,8 @@ def update_matrix_display(matrix_key, store):
     col_defs = [{"field": "Sector", "pinned": "left", "width": 160, "sortable": False}]
     delta_cell_style = {
         "function": (
-            "params.value < -0.0001 ? {'color':'#e74c3c','fontWeight':'bold'} : "
-            "params.value > 0.0001 ? {'color':'#2980b9'} : ({})"
+            "params.value < -0.0001 ? {'color':'#ef4444','fontWeight':'600'} : "
+            "params.value > 0.0001 ? {'color':'#4f8ef7'} : ({})"
         )
     }
     for lbl in short_labels:

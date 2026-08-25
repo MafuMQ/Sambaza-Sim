@@ -1,62 +1,108 @@
+"""
+Chart builders for the Sambaza-Sim dashboard.
+All charts use a shared dark-theme palette.
+"""
+
 import plotly.graph_objects as go
-import pandas as pd
+import numpy as np
 
-def build_output_chart(df: pd.DataFrame, actual_iterations: int) -> go.Figure:
-    top_df_out = df.head(15).sort_values(by='Output_Before', ascending=True)
-    fig_out = go.Figure()
-    # After added first so Before (last) renders on top in grouped horizontal bars
-    fig_out.add_trace(go.Bar(
-        y=top_df_out['Sector'],
-        x=top_df_out['Output_After'],
-        name='After',
-        orientation='h',
-        marker_color='#2ecc71',
-        legendrank=2
+# ── Design tokens (must match layout.py) ──────────────────────────────────
+_BG_PLOT   = '#16192a'
+_BG_PAPER  = '#252836'
+_TEXT      = '#e2e8f0'
+_MUTED     = '#64748b'
+_GRID      = '#2d3142'
+_ACCENT    = '#4f8ef7'
+_GREEN     = '#22c55e'
+_RED       = '#ef4444'
+_FONT      = 'Inter, system-ui, sans-serif'
+
+_LAYOUT_BASE = dict(
+    paper_bgcolor=_BG_PAPER,
+    plot_bgcolor=_BG_PLOT,
+    font=dict(color=_TEXT, family=_FONT, size=12),
+    margin=dict(l=16, r=16, t=44, b=16),
+)
+
+
+def build_waterfall_chart(before_total: float, after_total: float) -> go.Figure:
+    """
+    Waterfall chart: Total Output Before → Δ → After.
+
+    Parameters
+    ----------
+    before_total : float
+        Sum of sector outputs in the baseline scenario.
+    after_total : float
+        Sum of sector outputs in the policy/shock scenario.
+    """
+    delta = after_total - before_total
+    sign  = '+' if delta >= 0 else ''
+
+    fig = go.Figure(go.Waterfall(
+        orientation='v',
+        measure=['absolute', 'relative', 'total'],
+        x=['Before', f'Δ  {sign}${delta:,.0f}', 'After'],
+        y=[before_total, delta, 0],
+        connector={'line': {'color': _GRID, 'width': 1}},
+        increasing={'marker': {'color': _GREEN, 'line': {'color': _GREEN, 'width': 0}}},
+        decreasing={'marker': {'color': _RED,   'line': {'color': _RED,   'width': 0}}},
+        totals    ={'marker': {'color': _ACCENT, 'line': {'color': _ACCENT,'width': 0}}},
+        # Show value on absolute/relative bars; total bar gets an annotation below
+        text=[f'${before_total:,.0f}', f'{sign}${delta:,.0f}', f'${after_total:,.0f}'],
+        textposition='outside',
+        textfont=dict(size=12, color=_TEXT),
     ))
-    fig_out.add_trace(go.Bar(
-        y=top_df_out['Sector'],
-        x=top_df_out['Output_Before'],
-        name='Before',
-        orientation='h',
-        marker_color='#3498db',
-        legendrank=1
-    ))
-    fig_out.update_layout(
-        title=f'Gross Output Comparison - Top 15 Sectors ({actual_iterations} iteration{"s" if actual_iterations != 1 else ""})',
-        barmode='group',
-        template='plotly_white',
-        margin=dict(l=20, r=20, t=40, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+
+    fig.update_layout(
+        **_LAYOUT_BASE,
+        title=dict(text='Total Output — Before vs After', font=dict(size=13, color=_TEXT)),
+        showlegend=False,
+        height=300,
+        xaxis=dict(showgrid=False, linecolor=_GRID, tickfont=dict(color=_TEXT)),
+        yaxis=dict(
+            showgrid=True, gridcolor=_GRID, zeroline=False,
+            tickprefix='$', tickformat=',.0f', tickfont=dict(color=_MUTED),
+        ),
     )
-    return fig_out
+    return fig
 
-def build_va_chart(df: pd.DataFrame, actual_iterations: int) -> go.Figure:
-    top_df_va = df.head(15).sort_values(by='VA_Before', ascending=True)
-    fig_va = go.Figure()
-    # After added first so Before (last) renders on top in grouped horizontal bars
-    fig_va.add_trace(go.Bar(
-        y=top_df_va['Sector'],
-        x=top_df_va['VA_After'],
-        name='After',
+
+def build_delta_bar_chart(df) -> go.Figure:
+    """
+    Horizontal bar chart showing Δ Output per sector, sorted by magnitude.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Must contain columns: 'Sector', 'Output_Delta'.
+    """
+    df_sorted = df.sort_values('Output_Delta', ascending=True)
+    values    = df_sorted['Output_Delta'].tolist()
+    labels    = df_sorted['Sector'].tolist()
+    colors    = [_GREEN if v >= 0 else _RED for v in values]
+    text      = [f'+${v:,.0f}' if v >= 0 else f'−${abs(v):,.0f}' for v in values]
+
+    fig = go.Figure(go.Bar(
+        y=labels,
+        x=values,
         orientation='h',
-        marker_color='#e67e22',
-        legendrank=2
+        marker=dict(color=colors, line=dict(width=0)),
+        text=text,
+        textposition='outside',
+        textfont=dict(size=11, color=_TEXT),
+        cliponaxis=False,
     ))
-    fig_va.add_trace(go.Bar(
-        y=top_df_va['Sector'],
-        x=top_df_va['VA_Before'],
-        name='Before',
-        orientation='h',
-        marker_color='#9b59b6',
-        legendrank=1
-    ))
-    fig_va.update_layout(
-        title=f'Value Added Comparison - Top 15 Sectors ({actual_iterations} iteration{"s" if actual_iterations != 1 else ""})',
-        barmode='group',
-        template='plotly_white',
-        margin=dict(l=20, r=20, t=40, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+
+    fig.update_layout(
+        **_LAYOUT_BASE,
+        title=dict(text='Output Change by Sector (Δ)', font=dict(size=13, color=_TEXT)),
+        height=max(240, 68 * len(df_sorted)),
+        xaxis=dict(
+            showgrid=True, gridcolor=_GRID,
+            zeroline=True, zerolinecolor='#4a4f6a', zerolinewidth=1,
+            tickprefix='$', tickformat=',.0f', tickfont=dict(color=_MUTED),
+        ),
+        yaxis=dict(showgrid=False, linecolor=_GRID, tickfont=dict(color=_TEXT, size=11)),
     )
-    return fig_va
-
-
+    return fig
