@@ -1,0 +1,2 @@
+example_id,change_type,title,description,final_demand,income_tax_rate_before,income_tax_rate_after,corporate_tax_rate_before,corporate_tax_rate_after,income_tax_applies_to,iterations,wage_proportions,surplus_proportions,government_proportions,tech_change_function_name,tech_change_params
+1,tax_policy,example A,,100.0;100.0;100.0,0.1,0.1,0.25,0.25,wages,5,0.8;0.1;0.1,0.1;0.1;0.8,0.3333;0.3333;0.3333,,

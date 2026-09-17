@@ -1,0 +1,7 @@
+1.  Close the natural occuring leakage, AI says it's because total VA doesnt equal FD etc...
+2.  Wage spend rate & surplus spend rate, they should have target spend sector set, a set of how much in proportion do they spend on X,
+    - regard the FD, it likely already has such info, or has duplicate info.
+
+-(add complexity in which each spender (gov,surplus,wage) has a certain percentage on each type of spending, for far later!)
+- regarding above, in simple terms, we'll have something like: wage=[0.1,0.9] for investment and consumer goods spending respectively, with surplus=[0.5,0.5], and with gov=[0.3,0.7], the gov and surplus investment targets are combined in this case, which is unrealistic, but we'll leave it for now, the alternative is to have a gov bucket: (wage=[0.1,0.9,0];surplus=[0.3,0.5,0];gov=[0.5,0.2,0.3], but this will have intersecting target sectors, which may be already happening with the original method, this may raise some issues because we need to make sure all adds up, there is no extra cash coming out from thin air.
+- check also whether tax is hard coded into productions, if it is either remove, or override
