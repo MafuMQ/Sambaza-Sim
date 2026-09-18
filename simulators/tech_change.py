@@ -87,8 +87,11 @@ Usage:
 
 import numpy as np
 import logging
-from typing import Dict, List, Tuple, Optional, Any, Union
+from typing import TYPE_CHECKING, Dict, List, Tuple, Optional, Any, Union
 from copy import deepcopy
+
+if TYPE_CHECKING:
+    from simulators.savings_ledger import SavingsLedger
 
 logger = logging.getLogger(__name__)
 
@@ -538,32 +541,78 @@ class TechnologicalChange:
     # Capital Requirements (Investment Cost of Technology Change)
     # ==========================================================================
     
-    def set_capital_requirements(self, requirements: Dict[Union[str, int], float],
-                                  investment_duration: int = 1):
+    def set_capital_requirements(
+        self,
+        requirements: Dict[Union[str, int], float] = None,
+        investment_duration: int = 1,
+        ledger: Optional['SavingsLedger'] = None,
+        total_cost: float = None,
+    ):
         """
         Set the capital goods required to implement this technological change.
-        
+
         This defines what must be purchased (as investment demand) BEFORE the
         technology change takes effect. The simulation runs in two phases:
-        
-        Phase 1 (Investment): Capital demand is injected into the economy.
+
+        Phase 1 (Investment): Capital demand is injected into the economy
+            in even instalments across ``investment_duration`` iterations.
             The OLD technology is still active. Capital-producing sectors
             receive extra demand to produce the required equipment/infrastructure.
-        
+
         Phase 2 (New Technology): Capital has been delivered. The technology
             change takes effect (A matrix switches to A_after).
-        
+
         Parameters:
         -----------
-        requirements : dict
+        requirements : dict, optional
             Mapping of sector ISIC code (or index) to dollar amount of capital
-            goods needed from that sector.
-            Example: {"C28_281_2821": 500.0, "F41_411_4110": 200.0}
-            meaning: need $500 of machinery and $200 of construction
+            goods needed from that sector. When provided, the total cost is
+            sum(requirements.values()) and capital demand is injected into the
+            specified sectors during the investment phase.
+            If None, ``total_cost`` must be provided instead and capital demand
+            is distributed proportionally across domestic sectors at runtime.
         investment_duration : int
             Number of iterations the investment phase lasts (default: 1).
             The technology switches after this many iterations.
+        ledger : SavingsLedger or None
+            Optional financing ledger. When provided, the full investment
+            cost (sum(requirements.values())) is checked against the ledger
+            balance and reserved immediately (reserve-on-commit, all-or-nothing).
+            If the balance is insufficient, InvestmentNotAffordableError is
+            raised and the capital requirements are NOT stored -- the tech
+            change is not committed.
+            When None (default), the existing unconditional behaviour is
+            preserved for backward compatibility.
+
+        Raises
+        ------
+        InvestmentNotAffordableError
+            If ledger is provided and the balance is insufficient to cover
+            the full investment cost.
         """
+        # --- Resolve requirements form ---
+        if requirements is None and total_cost is not None:
+            # Simple total-cost form: no sector breakdown. Store as sentinel key.
+            requirements = {'_total': float(total_cost)}
+        elif requirements is None:
+            raise ValueError("Either 'requirements' dict or 'total_cost' float must be provided.")
+
+        # --- Affordability gate (reserve-on-commit) ---
+        cost = sum(requirements.values())
+        if ledger is not None:
+            from simulators.savings_ledger import InvestmentNotAffordableError
+            if not ledger.withdraw(cost):
+                raise InvestmentNotAffordableError(
+                    f"Investment '{self.name}' requires ${cost:,.2f} but ledger "
+                    f"balance is ${ledger.balance:,.2f}. Investment not started."
+                )
+            logger.info(
+                "SavingsLedger: reserved $%.2f for investment '%s' (balance after: $%.2f)",
+                cost,
+                self.name,
+                ledger.balance,
+            )
+
         self.capital_requirements = requirements
         self.investment_duration = max(1, investment_duration)
     
@@ -577,32 +626,54 @@ class TechnologicalChange:
     
     def get_capital_demand_vector(self, isic_map: Dict[str, int], n: int) -> 'np.ndarray':
         """
-        Convert capital requirements into a demand vector for the I-O model.
-        
-        Each entry represents the dollar amount of capital goods that must be
-        produced by that sector to enable this technological change.
-        
+        Convert capital requirements into a per-period demand vector for the I-O model.
+
+        The returned vector represents the capital goods demand to inject in
+        **each** investment-phase iteration. The total requirement for each
+        sector is divided evenly across ``investment_duration`` iterations so
+        that the sum injected over the full investment phase equals exactly
+        ``sum(requirements.values())``.
+
+        Even-split rationale: spreading the procurement over the investment
+        period models gradual acquisition (e.g. staged construction payments
+        or phased equipment delivery). A one-time lump-sum option may be
+        added as a future config flag if needed.
+
         Parameters:
         -----------
         isic_map : dict
             Mapping of ISIC codes to matrix indices
         n : int
             Number of sectors
-        
+
         Returns:
         --------
-        np.ndarray : Capital demand vector (n,) with amounts per sector
+        np.ndarray : Per-period capital demand vector (n,)
         """
+        duration = max(1, self.investment_duration)  # guard against zero
         capital_demand = np.zeros(n)
+
+        # Check if this is the simple total-cost form (no sector breakdown)
+        if list(self.capital_requirements.keys()) == ['_total']:
+            # Distribute total proportionally across all non-import domestic sectors
+            total_per_period = self.capital_requirements['_total'] / duration
+            domestic_indices = [i for isic, i in isic_map.items() if isic != 'A9999_999_999']
+            if domestic_indices:
+                per_sector = total_per_period / len(domestic_indices)
+                for idx in domestic_indices:
+                    capital_demand[idx] = per_sector
+            return capital_demand
+
         for sector, amount in self.capital_requirements.items():
+            per_period = amount / duration
             if isinstance(sector, str):
                 if sector in isic_map:
-                    capital_demand[isic_map[sector]] = amount
+                    capital_demand[isic_map[sector]] = per_period
                 else:
                     logger.warning(f"Capital requirement sector '{sector}' not found in isic_map")
             elif isinstance(sector, int):
                 if 0 <= sector < n:
-                    capital_demand[sector] = amount
+                    capital_demand[sector] = per_period
                 else:
                     logger.warning(f"Capital requirement sector index {sector} out of range (n={n})")
             else:

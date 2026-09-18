@@ -106,3 +106,121 @@ def build_delta_bar_chart(df) -> go.Figure:
         yaxis=dict(showgrid=False, linecolor=_GRID, tickfont=dict(color=_TEXT, size=11)),
     )
     return fig
+
+
+def build_ledger_trajectory_chart(
+    iterations: list,
+    balances: list,
+    deposits: list = None,
+    reserved_amount: float = 0.0,
+) -> go.Figure:
+    """
+    Line/area chart tracking Savings Ledger balance progression across iterations.
+    """
+    fig = go.Figure()
+
+    # Area + line for running balance
+    fig.add_trace(go.Scatter(
+        x=iterations,
+        y=balances,
+        mode='lines+markers',
+        name='Ledger Balance',
+        line=dict(color=_ACCENT, width=3),
+        marker=dict(size=7, color=_ACCENT, line=dict(width=1.5, color='#ffffff')),
+        fill='tozeroy',
+        fillcolor='rgba(79, 142, 247, 0.12)',
+        hovertemplate='<b>%{x}</b><br>Balance: $%{y:,.2f}<extra></extra>',
+    ))
+
+    # If deposits provided, add as a bar trace on secondary or subtle trace
+    if deposits and any(d > 0 for d in deposits):
+        fig.add_trace(go.Bar(
+            x=iterations,
+            y=deposits,
+            name='Period Savings Inflow',
+            marker=dict(color='rgba(34, 197, 94, 0.45)', line=dict(color=_GREEN, width=1)),
+            hovertemplate='<b>%{x}</b><br>Savings Inflow: +$%{y:,.2f}<extra></extra>',
+        ))
+
+    # Annotation if capital was reserved
+    if reserved_amount > 0 and len(balances) > 0:
+        fig.add_annotation(
+            x=iterations[0],
+            y=balances[0],
+            text=f"Reserved: -${reserved_amount:,.2f}",
+            showarrow=True,
+            arrowhead=2,
+            arrowcolor=_RED,
+            arrowsize=1,
+            arrowwidth=1.5,
+            ax=45,
+            ay=-35,
+            font=dict(size=10, color=_RED),
+            bgcolor=_BG_PAPER,
+            bordercolor=_RED,
+            borderwidth=1,
+            borderpad=4,
+        )
+
+    fig.update_layout(
+        **_LAYOUT_BASE,
+        title=dict(text='Savings Ledger Balance Trajectory', font=dict(size=13, color=_TEXT)),
+        height=320,
+        barmode='relative',
+        legend=dict(
+            orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
+            font=dict(size=11, color=_MUTED),
+            bgcolor='rgba(0,0,0,0)',
+        ),
+        xaxis=dict(showgrid=True, gridcolor=_GRID, linecolor=_GRID, tickfont=dict(color=_TEXT)),
+        yaxis=dict(
+            showgrid=True, gridcolor=_GRID, zeroline=True, zerolinecolor='#4a4f6a',
+            tickprefix='$', tickformat=',.0f', tickfont=dict(color=_MUTED),
+        ),
+    )
+    return fig
+
+
+def build_savings_breakdown_chart(
+    initial_injection: float,
+    wage_savings: float,
+    surplus_savings: float,
+    reserved_capital: float,
+    ending_balance: float,
+) -> go.Figure:
+    """
+    Waterfall / breakdown chart comparing initial injection, period savings inflows,
+    capital reservations, and final balance.
+    """
+    labels = ['Initial Balance', 'Wage Savings', 'Surplus Savings', 'Capital Reserved', 'Ending Balance']
+    values = [initial_injection, wage_savings, surplus_savings, -reserved_capital, ending_balance]
+    measures = ['absolute', 'relative', 'relative', 'relative', 'total']
+
+    fig = go.Figure(go.Waterfall(
+        orientation='v',
+        measure=measures,
+        x=labels,
+        y=[initial_injection, wage_savings, surplus_savings, -reserved_capital, 0],
+        connector={'line': {'color': _GRID, 'width': 1}},
+        increasing={'marker': {'color': _GREEN}},
+        decreasing={'marker': {'color': _RED}},
+        totals={'marker': {'color': _ACCENT}},
+        text=[f'${v:,.2f}' if v >= 0 else f'-${abs(v):,.2f}' for v in values],
+        textposition='outside',
+        textfont=dict(size=11, color=_TEXT),
+        cliponaxis=False,
+    ))
+
+    fig.update_layout(
+        **_LAYOUT_BASE,
+        title=dict(text='Savings Ledger Cash Flow Breakdown', font=dict(size=13, color=_TEXT)),
+        showlegend=False,
+        height=320,
+        xaxis=dict(showgrid=False, linecolor=_GRID, tickfont=dict(color=_TEXT, size=11)),
+        yaxis=dict(
+            showgrid=True, gridcolor=_GRID, zeroline=False,
+            tickprefix='$', tickformat=',.0f', tickfont=dict(color=_MUTED),
+        ),
+    )
+    return fig
+

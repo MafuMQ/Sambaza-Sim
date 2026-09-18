@@ -35,7 +35,8 @@ def get_examples_config():
 def get_sector_options():
     try:
         gdb = GoodsDatabase(database_url=db_url)
-        return [{'label': f"{g.name}  ({g.isic})", 'value': g.isic} for g in gdb.get_all_goods()]
+        goods = gdb.get_all_goods()
+        return [{'label': f"{g.name}  ({g.isic})", 'value': g.isic} for g in sorted(goods, key=lambda x: x.name)]
     except Exception as e:
         print(f"Error loading sector options: {e}")
         return []
@@ -149,6 +150,27 @@ def _graph_card(graph_id, height=300):
                 id=graph_id,
                 style={'height': f'{height}px'},
             )
+        ]
+    )
+
+
+def _stat_card(cid, label, default_val='—'):
+    return html.Div(
+        style={
+            'flex': '1 1 130px',
+            'backgroundColor': CARD,
+            'border': f'1px solid {BORDER}',
+            'borderRadius': '8px',
+            'padding': '12px 14px',
+        },
+        children=[
+            html.P(label, style={
+                'margin': '0 0 4px', 'fontSize': '10px', 'fontWeight': '700',
+                'letterSpacing': '0.06em', 'textTransform': 'uppercase', 'color': MUTED,
+            }),
+            html.P(default_val, id=cid, style={
+                'margin': 0, 'fontSize': '16px', 'fontWeight': '700', 'color': TEXT,
+            }),
         ]
     )
 
@@ -424,6 +446,26 @@ def serve_layout():
                 _slider_row('Government Spend Rate', 'input-tax-spend',     value=1.0),
             ]),
 
+            # ── Savings & Financing accordion ───────────────────────────
+            _accordion('Savings & Financing', open_by_default=True, content=[
+                _label('Initial Savings / External Capital ($)'),
+                dcc.Input(
+                    id='input-initial-savings', type='number', min=0, step=50.0, value=0.0,
+                    placeholder='External savings balance…',
+                    style={'width': '100%', 'marginBottom': '6px'},
+                ),
+                html.P('Pre-existing cash balance available to finance capital investment.',
+                       style={'fontSize': '10px', 'color': MUTED, 'marginBottom': '10px', 'lineHeight': '1.4'}),
+                dcc.Checklist(
+                    id='input-savings-gate',
+                    options=[{'label': ' Enforce Savings Gate', 'value': 'enforce'}],
+                    value=['enforce'],
+                    style={'fontSize': '12px', 'color': TEXT, 'marginBottom': '4px'},
+                ),
+                html.P('When enabled, tech changes with capital requirements check and reserve from savings before activating.',
+                       style={'fontSize': '10px', 'color': MUTED, 'marginBottom': '4px', 'lineHeight': '1.4'}),
+            ]),
+
             # ── Advanced accordion ──────────────────────────────────────
             _accordion('Advanced', content=[
                 _label('Iterations'),
@@ -466,7 +508,22 @@ def serve_layout():
             _kpi_card('summary-va',     'Δ Value Added'),
             _kpi_card('summary-fd',     'Δ Final Demand'),
             _kpi_card('summary-tax',    'Δ Tax Revenue'),
+            _kpi_card('summary-ledger', 'End Savings Balance'),
         ]
+    )
+
+    status_banner = html.Div(
+        id='financing-status-banner',
+        style={
+            'display': 'none',
+            'padding': '11px 16px',
+            'borderRadius': '8px',
+            'marginBottom': '14px',
+            'fontSize': '12px',
+            'fontWeight': '600',
+            'border': f'1px solid {BORDER}',
+            'transition': 'all 0.2s ease',
+        },
     )
 
     center_panel = html.Div(
@@ -477,6 +534,7 @@ def serve_layout():
         },
         children=[
             kpi_row,
+            status_banner,
             dcc.Tabs(
                 id='main-tabs', value='tab-overview',
                 children=[
@@ -521,6 +579,53 @@ def serve_layout():
                                 dashGridOptions={'pagination': True, 'paginationPageSize': 20},
                                 **_GRID_OPTS,
                                 style={'height': 480, 'width': '100%'},
+                            )
+                        ])
+                    ]),
+
+                    # ── Savings & Financing Tab ───────────────────────────
+                    dcc.Tab(label='Savings & Financing', value='tab-savings', children=[
+                        html.Div(
+                            style={'display': 'flex', 'gap': '10px', 'marginTop': '14px', 'marginBottom': '14px', 'flexWrap': 'wrap'},
+                            children=[
+                                _stat_card('fin-stat-initial',   'Initial Capital', '$0.00'),
+                                _stat_card('fin-stat-inflows',   'VA Savings Inflow', '$0.00'),
+                                _stat_card('fin-stat-reserved',  'Capital Reserved', '$0.00'),
+                                _stat_card('fin-stat-balance',   'Closing Balance', '$0.00'),
+                                _stat_card('fin-stat-status',    'Investment Gate', '—'),
+                            ]
+                        ),
+                        html.Div(
+                            style={'display': 'flex', 'gap': '12px', 'marginTop': '14px', 'flexWrap': 'wrap'},
+                            children=[
+                                _graph_card('graph-ledger-trajectory', height=320),
+                                _graph_card('graph-savings-breakdown',  height=320),
+                            ]
+                        ),
+                        html.Div(style={'marginTop': '14px'}, children=[
+                            html.Div(
+                                style={'backgroundColor': CARD, 'borderRadius': '10px',
+                                       'border': f'1px solid {BORDER}', 'padding': '14px'},
+                                children=[
+                                    html.P('Capital Requirements Schedule',
+                                           style={'fontWeight': '600', 'color': TEXT, 'marginBottom': '8px', 'fontSize': '13px'}),
+                                    dag.AgGrid(
+                                        id='table-capital-requirements',
+                                        columnDefs=[
+                                            {'field': 'Sector', 'headerName': 'Investment Allocation', 'flex': 2},
+                                            {'field': 'Total_Amount', 'headerName': 'Total Required ($)', 'flex': 1,
+                                             'valueFormatter': {"function": "d3.format(',.2f')(params.value)"}},
+                                            {'field': 'Per_Period_Demand', 'headerName': 'Per-Period Injection ($)', 'flex': 1,
+                                             'valueFormatter': {"function": "d3.format(',.2f')(params.value)"}},
+                                            {'field': 'Duration', 'headerName': 'Duration (Iterations)', 'flex': 1},
+                                            {'field': 'Status', 'headerName': 'Financing Status', 'flex': 1},
+                                        ],
+                                        rowData=[],
+                                        defaultColDef={'resizable': True, 'sortable': True},
+                                        **_GRID_OPTS,
+                                        style={'height': 220, 'width': '100%'},
+                                    )
+                                ]
                             )
                         ])
                     ]),
@@ -700,7 +805,7 @@ def serve_layout():
             ]),
 
             # Operation
-            html.Div([
+            html.Div(id='tc-operation-container', children=[
                 _label('Operation'),
                 dcc.Dropdown(
                     id='tc-operation',
@@ -715,7 +820,7 @@ def serve_layout():
             ]),
 
             # Value input
-            html.Div([
+            html.Div(id='tc-value-container', children=[
                 _label('Value'),
                 dcc.Input(
                     id='tc-value', type='number', value=0.8, step=0.01,
@@ -723,10 +828,44 @@ def serve_layout():
                 ),
             ]),
 
+            # Monetary Requirement for this investment
+            html.Div(
+                style={'borderTop': f'1px dashed {BORDER}', 'paddingTop': '10px', 'marginTop': '10px'},
+                children=[
+                    html.P('Investment Monetary Requirement', style={
+                        'fontSize': '10px', 'fontWeight': '700', 'letterSpacing': '0.06em',
+                        'textTransform': 'uppercase', 'color': MUTED, 'marginBottom': '6px',
+                    }),
+                    html.Div(
+                        style={'display': 'flex', 'gap': '8px'},
+                        children=[
+                            html.Div(style={'flex': 1}, children=[
+                                _label('Capital Cost ($)'),
+                                dcc.Input(
+                                    id='tc-cost', type='number', min=0, value=0.0, step=25.0,
+                                    placeholder='0 = free…', style={'width': '100%'},
+                                ),
+                            ]),
+                            html.Div(style={'flex': 1}, children=[
+                                _label('Duration (Iters)'),
+                                dcc.Input(
+                                    id='tc-duration', type='number', min=1, max=20, value=1, step=1,
+                                    placeholder='Build time…', style={'width': '100%'},
+                                ),
+                            ]),
+                        ]
+                    ),
+                    html.P(
+                        'Funded from savings ledger. Baseline technology runs during build iterations.',
+                        style={'fontSize': '9px', 'color': MUTED, 'marginTop': '4px', 'marginBottom': '4px'},
+                    ),
+                ]
+            ),
+
             # Action buttons
-            html.Div(style={'display': 'flex', 'gap': '8px', 'marginTop': '4px'}, children=[
+            html.Div(style={'display': 'flex', 'gap': '8px', 'marginTop': '6px'}, children=[
                 html.Button(
-                    '+ Add Change', id='tc-add-button', n_clicks=0,
+                    '+ Add Investment', id='tc-add-button', n_clicks=0,
                     style={
                         'flex': 1, 'padding': '9px 0',
                         'backgroundColor': ACCENT, 'color': 'white',
@@ -735,7 +874,7 @@ def serve_layout():
                     }
                 ),
                 html.Button(
-                    'Clear', id='tc-clear-button', n_clicks=0,
+                    'Clear All', id='tc-clear-button', n_clicks=0,
                     style={
                         'flex': '0 0 auto', 'padding': '9px 14px',
                         'backgroundColor': '#272b3d', 'color': MUTED,
@@ -745,11 +884,11 @@ def serve_layout():
                 ),
             ]),
 
-            # Pending changes list
+            # Pending investments list
             html.Div(
-                style={'borderTop': f'1px solid {BORDER}', 'paddingTop': '12px', 'marginTop': '4px'},
+                style={'borderTop': f'1px solid {BORDER}', 'paddingTop': '12px', 'marginTop': '8px'},
                 children=[
-                    html.P('Pending Changes', style={
+                    html.P('Pending Investments', style={
                         'fontSize': '10px', 'fontWeight': '700', 'letterSpacing': '0.08em',
                         'textTransform': 'uppercase', 'color': MUTED, 'marginBottom': '8px',
                     }),
@@ -800,6 +939,7 @@ def serve_layout():
             dcc.Location(id='url', refresh=True),
             dcc.Store(id='store-matrices'),
             dcc.Store(id='store-tech-changes', data=[]),
+            dcc.Store(id='store-tech-cap-req', data=None),
             header,
             html.Div(
                 style={'display': 'flex', 'flex': '1 1 0', 'overflow': 'hidden'},

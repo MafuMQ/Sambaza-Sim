@@ -13,62 +13,68 @@ Usage:
 import csv
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any
 import json
 
+if TYPE_CHECKING:
+    from simulators.savings_ledger import SavingsLedger
+
+from simulators.savings_ledger import InvestmentNotAffordableError
 from pipeline.db.repositories.tech_change_repo import TechChangeDatabase
 
 logger = logging.getLogger(__name__)
 
 
-def build_tech_change_from_spec(spec: Dict, isic_map: Dict) -> 'TechnologicalChange':
+def build_tech_change_from_spec(
+    spec: Dict,
+    isic_map: Dict,
+    ledger: Optional['SavingsLedger'] = None,
+) -> 'TechnologicalChange':
     """
-    Build a TechnologicalChange object from a data specification.
-    
-    This function reconstructs a TechnologicalChange object from pure data
-    (loaded from CSV/database) without requiring hardcoded Python functions.
-    
+    Build a TechnologicalChange instance from a JSON specification.
+
     Parameters:
     -----------
     spec : dict
-        Specification with structure:
-        {
-            "name": "...",
-            "description": "...",
-            "changes": [
-                {"method": "add_input_change", "params": {...}},
-                ...
-            ]
-        }
+        Specification dictionary containing 'name', 'description', and 'changes' list
     isic_map : dict
         Mapping of ISIC codes to matrix indices
-    
+    ledger : Optional[SavingsLedger]
+        Optional savings ledger forwarded to ``set_capital_requirements``
+        for upfront affordability gating and reserve-on-commit withdrawal.
+
     Returns:
     --------
-    TechnologicalChange object with the specified changes
+    TechnologicalChange : Configured technological change instance
     """
     from simulators.tech_change import TechnologicalChange
-    
+
     tech_change = TechnologicalChange(
-        name=spec.get("name", "Unnamed Change"),
+        name=spec.get("name", "Custom Tech Change"),
         description=spec.get("description", "")
     )
-    
-    # Apply each change method
+
     for change in spec.get("changes", []):
         method_name = change.get("method")
         params = change.get("params", {})
-        
+
         if not hasattr(tech_change, method_name):
             logger.warning(f"Unknown method '{method_name}' in tech change spec")
             continue
-        
+
         method = getattr(tech_change, method_name)
         try:
-            method(**params)
+            # Forward ledger to set_capital_requirements so the
+            # affordability gate fires at spec-build time.
+            if method_name == 'set_capital_requirements' and ledger is not None:
+                method(**params, ledger=ledger)
+            else:
+                method(**params)
+        except InvestmentNotAffordableError:
+            raise
         except Exception as e:
             logger.error(f"Failed to apply {method_name} with params {params}: {e}")
-    
+
     return tech_change
 
 
@@ -631,11 +637,12 @@ def rebuild_examples_dict_from_db(database_url: str = "sqlite:///data.db") -> Di
                     "changes": changes
                 }
                 
-                # Create a builder lambda that uses the spec
-                builder = lambda isic_map, s=spec: build_tech_change_from_spec(s, isic_map)
+                # Create a builder lambda that uses the spec and accepts kwargs (like ledger)
+                builder = lambda isic_map, s=spec, **kw: build_tech_change_from_spec(s, isic_map, **kw)
                 config['params']['tech_change_config'] = {
                     'name': tc.title,
                     'description': config['description'][0] if config['description'] else tc.title,
+                    'spec': spec,
                     'tech_change_builder': builder
                 }
                 logger.info(f"Successfully built tech_change_config for example {tc.example_id}")
