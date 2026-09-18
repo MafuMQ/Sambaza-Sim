@@ -260,7 +260,7 @@ class TechnologicalChange:
         })
     
     # ==========================================================================
-    # Level 3: Production-Level Changes (Micro Level) — deepest
+    # Level 3: Production-Level Changes (Micro Level) â€” deepest
     # Rebuild chain: Productions ? Supply Curves ? Coefficient Matrix
     # ==========================================================================
     
@@ -923,7 +923,7 @@ class TechnologicalChange:
             # Get all productions for this good
             prods = ptdb.get_all_productions_by_good(int(curve.id_number))
             if not prods:
-                # No productions — use empty tiers
+                # No productions â€” use empty tiers
                 supply_data[isic] = {
                     "price": {"tiers": []},
                     "total_inputs_cost": {"tiers": []},
@@ -1076,7 +1076,7 @@ class TechnologicalChange:
                 VA_mon[col_idx] = float(va_value) / output_price
             
             # Get detailed input breakdown from productions database
-            # (Supply curves don't store this — only aggregate costs)
+            # (Supply curves don't store this â€” only aggregate costs)
             if ptdb is None:
                 continue
             

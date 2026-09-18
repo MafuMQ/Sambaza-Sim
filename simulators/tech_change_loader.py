@@ -179,6 +179,7 @@ def load_tax_policy_from_csv(
                     
                     # Add all parameter fields
                     field_mappings = {
+                        'final_demand': 'list',
                         'total_demand': 'float',
                         'uniform_demand': 'float',
                         'demand_vector': 'list',

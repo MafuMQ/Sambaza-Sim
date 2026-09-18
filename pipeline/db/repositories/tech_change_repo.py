@@ -82,7 +82,7 @@ class TechChange(Base):
         common_fields = ["iterations", "consumption_rate"]
 
         tax_policy_fields = [
-            "total_demand", "uniform_demand", "demand_vector", "proportions",
+            "final_demand", "total_demand", "uniform_demand", "demand_vector", "proportions",
             "target_isic", "demand_shock",
             "wage_proportions", "surplus_proportions", "government_proportions",
             "income_tax_rate_before", "income_tax_rate_after",

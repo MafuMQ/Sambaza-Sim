@@ -40,17 +40,36 @@ def toggle_tc_fields(change_type):
     Output('store-tech-changes', 'data'),
     Input('tc-add-button', 'n_clicks'),
     Input('tc-clear-button', 'n_clicks'),
+    Input('example-selector', 'value'),
     State('store-tech-changes', 'data'),
     State('tc-change-type', 'value'),
     State('tc-sector', 'value'),
     State('tc-input-sector', 'value'),
     State('tc-operation', 'value'),
     State('tc-value', 'value'),
-    prevent_initial_call=True,
+    prevent_initial_call=False,
 )
-def manage_tech_changes(add_clicks, clear_clicks, current_changes, change_type, sector, input_sector, operation, value):
-    triggered = ctx.triggered_id
+def manage_tech_changes(add_clicks, clear_clicks, example_id, current_changes, change_type, sector, input_sector, operation, value):
+    try:
+        triggered = ctx.triggered_id
+    except Exception:
+        triggered = None
     if triggered == 'tc-clear-button':
+        return []
+
+    # If triggered by selecting an example (or initial call), load scenario tech changes
+    if triggered == 'example-selector' or not triggered:
+        examples_config = get_examples_config()
+        if example_id and example_id in examples_config:
+            params = examples_config[example_id].get('params', {})
+            tc_params = params.get('tech_change_params', [])
+            if isinstance(tc_params, str):
+                import json
+                try:
+                    tc_params = json.loads(tc_params)
+                except Exception:
+                    tc_params = []
+            return list(tc_params or [])
         return []
 
     # Validate inputs for the add action
@@ -88,11 +107,36 @@ def manage_tech_changes(add_clicks, clear_clicks, current_changes, change_type, 
 # Tech-change builder: render the list of pending changes
 # ---------------------------------------------------------------------------
 
-METHOD_LABELS = {
-    'add_sector_change': 'All inputs of',
-    'add_input_change': 'Usage of',
-    'add_coefficient_change': 'Coefficient',
-}
+def format_tc_desc(ch):
+    method = ch.get('method', '')
+    p = ch.get('params', {})
+    op = p.get('change_type', '')
+    val = p.get('value', '')
+
+    if method == 'add_sector_change':
+        return f"All inputs of sector {p.get('sector_idx', '?')}: {op} {val}"
+    elif method == 'add_input_change':
+        return f"Usage of input {p.get('input_sector_idx', '?')} everywhere: {op} {val}"
+    elif method == 'add_coefficient_change':
+        return f"Coefficient [{p.get('input_sector_idx', '?')} → {p.get('sector_idx', '?')}]: {op} {val}"
+    elif method == 'add_production_all_inputs_change':
+        return f"Production #{p.get('production_id', '?')} all inputs: {op} {val}"
+    elif method == 'add_production_efficiency_change':
+        return f"Production #{p.get('production_id', '?')} efficiency ({p.get('efficiency_type', 'material')}): {op} {val}"
+    elif method == 'add_curve_new_tier':
+        return f"Supply curve {p.get('isic', '?')} new tier: cap={p.get('cap', '?')}, price={p.get('price', '?')}"
+    elif method == 'add_curve_tier_change':
+        return f"Supply curve {p.get('isic', '?')} tier #{p.get('tier_index', '?')} {p.get('field', '?')}: {op} {val}"
+    elif method == 'add_curve_scale_all_tiers':
+        return f"Supply curve {p.get('isic', '?')} scale all tiers ({p.get('field', '?')}): {op} {val}"
+    elif method == 'set_capital_requirements':
+        reqs = p.get('requirements', {})
+        dur = p.get('investment_duration', '?')
+        return f"Capital requirements: {reqs} over {dur} periods"
+    else:
+        details = ", ".join(f"{k}={v}" for k, v in p.items() if k not in ('exclude_inputs', 'exclude_sectors'))
+        return f"{method}: {details}" if details else method
+
 
 @callback(
     Output('tc-changes-display', 'children'),
@@ -104,18 +148,7 @@ def render_tc_changes(changes):
 
     items = []
     for i, ch in enumerate(changes):
-        method = ch['method']
-        p = ch['params']
-        op = p.get('change_type', '?')
-        val = p.get('value', '?')
-
-        if method == 'add_sector_change':
-            desc = f"{METHOD_LABELS[method]} sector {p.get('sector_idx', '?')}: {op} {val}"
-        elif method == 'add_input_change':
-            desc = f"{METHOD_LABELS[method]} input {p.get('input_sector_idx', '?')} everywhere: {op} {val}"
-        else:
-            desc = f"{METHOD_LABELS[method]} [{p.get('input_sector_idx', '?')} → {p.get('sector_idx', '?')}]: {op} {val}"
-
+        desc = format_tc_desc(ch)
         items.append(
             html.Div(
                 f"#{i+1}  {desc}",
@@ -140,12 +173,17 @@ def render_tc_changes(changes):
     Output('input-income-tax-after', 'value'),
     Output('input-corp-tax-before', 'value'),
     Output('input-corp-tax-after', 'value'),
+    Output('input-iterations', 'value'),
+    Output('input-wage-spend', 'value'),
+    Output('input-surplus-spend', 'value'),
+    Output('input-tax-spend', 'value'),
+    Output('input-economy-type', 'value'),
     Input('example-selector', 'value')
 )
 def update_controls(example_id):
     examples_config = get_examples_config()
     if not example_id or example_id not in examples_config:
-        return "", None, True, "", 'supply_curves', 0.0, 0.0, 0.0, 0.0
+        return "", None, True, "", 'supply_curves', 0.0, 0.0, 0.0, 0.0, 5, 1.0, 1.0, 1.0, 'open'
     
     config = examples_config[example_id]
     desc_lines = config.get('description', [])
@@ -175,7 +213,14 @@ def update_controls(example_id):
         fd_disabled = True
         fd_hint = "FD customization is available for vector-based demand scenarios only."
     
-    return desc, fd_total, fd_disabled, fd_hint, solver, inc_before, inc_after, corp_before, corp_after
+    iterations = int(params.get('iterations', 5)) if params.get('iterations') else 5
+    consumption_rate = float(params.get('consumption_rate', 1.0)) if params.get('consumption_rate') is not None else 1.0
+    wage_spend = float(params.get('wage_spend_rate', consumption_rate))
+    surplus_spend = float(params.get('surplus_spend_rate', 1.0))
+    tax_spend = float(params.get('tax_spend_rate', 1.0))
+    economy_type = params.get('economy_type', 'open')
+    
+    return desc, fd_total, fd_disabled, fd_hint, solver, inc_before, inc_after, corp_before, corp_after, iterations, wage_spend, surplus_spend, tax_spend, economy_type
 
 @callback(
     Output('summary-output', 'children'),
@@ -290,15 +335,27 @@ def execute_simulation(n_clicks, example_id, iterations, solver, inc_before, inc
         government_proportions=g_props
     )
 
-    # 4b. Apply UI tech changes to build the "after" model
+    # 4b. Apply tech changes to build the "after" model
     model_after = model  # default: same model if no tech changes
     A_after_mat = model.A.copy()
-    if ui_tech_changes:
+    
+    tech_changes_to_apply = ui_tech_changes
+    if tech_changes_to_apply is None and 'tech_change_params' in params:
+        tech_changes_to_apply = params['tech_change_params']
+        if isinstance(tech_changes_to_apply, str):
+            import json
+            try:
+                tech_changes_to_apply = json.loads(tech_changes_to_apply)
+            except Exception:
+                tech_changes_to_apply = []
+
+    if tech_changes_to_apply:
         try:
+            scenario_title = config.get('title', 'Tech Change')
             spec = {
-                "name": "UI Tech Change",
-                "description": "Changes applied via the GUI",
-                "changes": ui_tech_changes,
+                "name": scenario_title,
+                "description": config.get('description', ['Applied tech changes'])[0] if config.get('description') else scenario_title,
+                "changes": tech_changes_to_apply,
             }
             tech_change = build_tech_change_from_spec(spec, isic_map)
             A_new, VA_new = tech_change.apply(
@@ -562,20 +619,45 @@ def update_matrix_display(matrix_key, store):
 
 
 from pipeline.setup_data import setup_data
+from presentation.layout import get_sector_options
 
 @callback(
-    Output('url', 'href'),
     Output('load-source-status', 'children'),
+    Output('load-source-status', 'style'),
+    Output('example-selector', 'options'),
+    Output('example-selector', 'value'),
+    Output('tc-sector', 'options'),
+    Output('tc-input-sector', 'options'),
+    Output('store-tech-changes', 'data', allow_duplicate=True),
     Input('load-source-btn', 'n_clicks'),
     State('data-source-selector', 'value'),
     prevent_initial_call=True
 )
 def load_new_data_source(n_clicks, source_folder):
     if not source_folder:
-        return no_update, "Please select a folder."
+        return "Please select a folder.", {'fontSize': '11px', 'color': '#ef4444', 'marginTop': '6px'}, no_update, no_update, no_update, no_update, no_update
     try:
         setup_data(source=source_folder, overwrite_existing_data=True)
-        return "/", ""
+        examples_config = get_examples_config()
+        example_options = [{'label': v['title'], 'value': k} for k, v in examples_config.items()]
+        default_example = list(examples_config.keys())[0] if examples_config else None
+        sector_options = get_sector_options()
+        
+        initial_tc = []
+        if default_example and default_example in examples_config:
+            tc_p = examples_config[default_example].get('params', {}).get('tech_change_params', [])
+            if isinstance(tc_p, str):
+                import json
+                try:
+                    tc_p = json.loads(tc_p)
+                except Exception:
+                    tc_p = []
+            initial_tc = list(tc_p or [])
+            
+        status_msg = f"Successfully loaded {source_folder} ({len(sector_options)} sectors, {len(example_options)} scenarios)."
+        status_style = {'fontSize': '11px', 'color': '#22c55e', 'marginTop': '6px'}
+        return status_msg, status_style, example_options, default_example, sector_options, sector_options, initial_tc
     except Exception as e:
-        return no_update, f"Error: {e}"
+        return f"Error: {e}", {'fontSize': '11px', 'color': '#ef4444', 'marginTop': '6px'}, no_update, no_update, no_update, no_update, no_update
+
 
