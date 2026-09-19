@@ -179,7 +179,9 @@ def run_tax_simulation(
             "gross_income": gross_income,
             "tax_results": tax_results,
             "total_demand": float(effective_demand.sum()),
-            "total_output": float(X.sum())
+            "total_output": float(X.sum()),
+            "model": active_model,
+            "A_matrix": active_A.copy()
         }
         history.append(snapshot)
         

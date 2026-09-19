@@ -1,0 +1,7 @@
+id,name,descriptive_name,id_number,isic,isic_section,isic_division,isic_group,isic_class,sub_class_a,sub_class_b,sub_class_c,sub_class_nf
+1,Foreign Exchange,Represents foreign currency used for international imports and global supply chains.,9999,A9999_999_999,A,99,9,9,9,9,9,999
+2,Agriculture & Food Products,"Crops, livestock, grain farming, and commercial agro-processing.",1010,A0111_100_01,A,01,1,1,1,0,0,01
+3,Electric Power & Utilities,"Power generation, clean renewable energy, transmission grid, and water utilities.",3510,A3510_200_02,A,35,1,0,2,0,0,02
+4,Industrial Machinery & Chemicals,"Capital equipment, fabricated metals, chemicals, and advanced industrial machinery.",2810,A2810_300_03,A,28,1,0,3,0,0,03
+5,Transport & Freight Logistics,"Freight transport by road, rail, inter-modal logistics, and warehousing services.",4923,A4923_400_04,A,49,2,3,4,0,0,04
+6,Commercial & IT Services,"Business consulting, software, financial engineering, legal, and technical services.",6910,A6910_500_05,A,69,1,0,5,0,0,05

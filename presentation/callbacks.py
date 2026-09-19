@@ -147,6 +147,10 @@ def render_tc_changes(changes):
                 desc = f"{METHOD_LABELS.get(method, method)} input {p.get('input_sector_idx', '?')} everywhere: {op} {val}"
             elif method == 'add_coefficient_change':
                 desc = f"{METHOD_LABELS.get(method, method)} [{p.get('input_sector_idx', '?')} → {p.get('sector_idx', '?')}]: {op} {val}"
+            elif method == 'add_production_input_change':
+                in_isic = p.get('input_isic', '?')
+                in_name = sector_name_map.get(in_isic, in_isic)
+                desc = f"Recipe #{p.get('production_id', '?')} input {in_name}: {op} {val}"
             elif method == 'add_production_all_inputs_change':
                 desc = f"Production #{p.get('production_id', '?')} all inputs: {op} {val}"
             elif method == 'add_production_efficiency_change':
@@ -574,6 +578,15 @@ def execute_simulation(n_clicks, example_id, iterations, solver,
             inv_label = f"Usage of {s_name} ({p.get('change_type')} {p.get('value')})"
         elif method == 'add_coefficient_change':
             inv_label = f"Coeff [{p.get('input_sector_idx', '?')} → {p.get('sector_idx', '?')}]"
+        elif method == 'add_production_input_change':
+            in_isic = p.get('input_isic', '?')
+            in_name = sector_name_map.get(in_isic, in_isic)
+            inv_label = f"Recipe #{p.get('production_id', '?')} {in_name} ({p.get('change_type')} {p.get('value')})"
+        elif method == 'add_curve_tier_change':
+            sec = p.get('isic', '?')
+            s_name = sector_name_map.get(sec, sec)
+            t_idx = p.get('tier_index', 0)
+            inv_label = f"Curve {s_name} Tier {int(t_idx)+1} {p.get('field', '')} ({p.get('change_type', '')} {p.get('value', '')})"
         elif method == 'noop':
             inv_label = "Capital Project"
 

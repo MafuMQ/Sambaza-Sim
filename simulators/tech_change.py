@@ -184,6 +184,8 @@ class TechnologicalChange:
         You can use ISIC codes (e.g., "A01") instead of numeric indices.
         If using ISIC codes, you must provide isic_map when calling apply().
         """
+        if change_type == "replace":
+            change_type = "set"
         valid_types = ["multiply", "add", "set"]
         if change_type not in valid_types:
             raise ValueError(f"change_type must be one of {valid_types}")
@@ -263,7 +265,7 @@ class TechnologicalChange:
         })
     
     # ==========================================================================
-    # Level 3: Production-Level Changes (Micro Level) — deepest
+    # Level 3: Production-Level Changes (Micro Level) -- deepest
     # Rebuild chain: Productions ? Supply Curves ? Coefficient Matrix
     # ==========================================================================
     
@@ -994,7 +996,7 @@ class TechnologicalChange:
             # Get all productions for this good
             prods = ptdb.get_all_productions_by_good(int(curve.id_number))
             if not prods:
-                # No productions — use empty tiers
+                # No productions -- use empty tiers
                 supply_data[isic] = {
                     "price": {"tiers": []},
                     "total_inputs_cost": {"tiers": []},
@@ -1147,7 +1149,7 @@ class TechnologicalChange:
                 VA_mon[col_idx] = float(va_value) / output_price
             
             # Get detailed input breakdown from productions database
-            # (Supply curves don't store this — only aggregate costs)
+            # (Supply curves don't store this -- only aggregate costs)
             if ptdb is None:
                 continue
             
